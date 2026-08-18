@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@zhcsyncer/pi-tool-display-intent": ["./src/upstream.d.ts"],
+      "pi-hashline-edit-pro": ["./src/upstream.d.ts"]
+    }
+  },
+  "include": ["index.ts", "src/**/*.ts"],
+}

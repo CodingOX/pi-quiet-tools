@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
+  "version": 2,
+  "intent": {
+    "enabled": false
+  },
+  "toolCalls": {
+    "layout": "aggregate",
+    "style": "compact"
+  },
+  "results": {
+    "mode": "summary"
+  },
+  "diff": {
+    "collapsedMode": "summary"
+  },
+  "tools": {
+    "passthrough": [
+      "Agent",
+      "edit"
+    ]
+  },
+  "advanced": {
+    "truncationHints": false
+  }
+}
