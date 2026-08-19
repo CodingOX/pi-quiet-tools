@@ -23,7 +23,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/aggregate-silent-ledger.test.ts"
+    "test": "npx --yes tsx --test src/*.test.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.0",

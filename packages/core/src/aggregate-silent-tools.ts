@@ -7,8 +7,6 @@ import {
 const AGGREGATE_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-tool-execution.v1",
 );
-const SILENT_WRAP_KEY_V1 = Symbol.for("pi-tools.aggregate-silent-wrap.v1");
-const SILENT_WRAP_KEY_V2 = Symbol.for("pi-tools.aggregate-silent-wrap.v2");
 const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v3");
 const SILENT_INNER_KEY = Symbol.for("pi-tools.aggregate-silent-inner.v2");
 
@@ -25,11 +23,22 @@ interface PatchableToolExecutionPrototype {
 }
 
 type PatchedRender = ((this: unknown, width: number) => string[]) & {
-  [SILENT_WRAP_KEY_V1]?: true;
-  [SILENT_WRAP_KEY_V2]?: true;
   [SILENT_WRAP_KEY]?: true;
   [SILENT_INNER_KEY]?: (this: unknown, width: number) => string[];
 };
+
+function unwrapSilentInner(
+  currentRender: PatchedRender,
+  liveRender: PatchedRender,
+): (this: unknown, width: number) => string[] {
+  if (typeof currentRender[SILENT_INNER_KEY] === "function") {
+    return currentRender[SILENT_INNER_KEY];
+  }
+  if (typeof liveRender[SILENT_INNER_KEY] === "function") {
+    return liveRender[SILENT_INNER_KEY];
+  }
+  return currentRender;
+}
 
 export function installAggregateSilentToolsPatch(): void {
   const prototype = ToolExecutionComponent.prototype as PatchableToolExecutionPrototype;
@@ -38,11 +47,13 @@ export function installAggregateSilentToolsPatch(): void {
   if (!currentRender) {
     return;
   }
-  if (currentRender[SILENT_WRAP_KEY]) {
+
+  const liveRender = prototype.render as PatchedRender;
+  if (liveRender[SILENT_WRAP_KEY] && liveRender === currentRender) {
     return;
   }
 
-  const innerRender = currentRender[SILENT_INNER_KEY] ?? currentRender;
+  const innerRender = unwrapSilentInner(currentRender, liveRender);
   const wrappedRender = function wrappedAggregateRender(
     this: unknown,
     width: number,
@@ -58,7 +69,5 @@ export function installAggregateSilentToolsPatch(): void {
   wrappedRender[SILENT_INNER_KEY] = innerRender;
 
   aggregateState!.patchedRender = wrappedRender;
-  if (prototype.render === currentRender) {
-    prototype.render = wrappedRender;
-  }
+  prototype.render = wrappedRender;
 }
