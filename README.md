@@ -28,12 +28,14 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 **Under the hood (agent view):** full hashline anchors, replace diffs, and tool results still reach the model unchanged.
 
 Default UI policy:
-
-- **Per-turn** Tools ledger (one small block after each assistant tool batch)
+- **Per-turn** Tools ledger (one small block per continuous tool phase)
 - **Keep** mid-turn assistant Markdown (thinking stays hidden)
 - **Intent off** (`displaySummary` disabled)
 - **Summary mode** for grep / bash / write / etc.
 - **Silent** `read` / `replace` / `undo_last_replace` rows (counts only in the ledger)
+- **Native renderers** remain enabled for `Agent` and image results
+
+With `per-turn`, consecutive tool-only assistant messages stay in the same ledger. Visible assistant Markdown or a mid-turn steer ends that phase; the next tool call starts a new ledger. Streaming updates of the same assistant message stay on the same ledger. `Ctrl+O` reveals the grouped one-line tool timeline, while silent tools still do not dump file contents or diffs.
 
 ## Install
 
