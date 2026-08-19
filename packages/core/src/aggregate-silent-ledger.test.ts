@@ -21,6 +21,26 @@ test("drops a silent per-call row", () => {
   assert.deepEqual(resolveSilentAggregateLines("read", ["✓ read README.md"]), []);
 });
 
+test("keeps expanded silent one-line rows from Ctrl+O", () => {
+  const lines = ["  └ ✓ Read(README.md)"];
+  assert.deepEqual(
+    resolveSilentAggregateLines("read", lines, { expanded: true }),
+    lines,
+  );
+});
+
+test("keeps an expanded silent host that still paints the Tools header", () => {
+  const lines = [
+    "",
+    "✓ Tools (2 calls · 1 turn) · read ×2",
+    "  └ ✓ Read(src/a.ts)",
+  ];
+  assert.deepEqual(
+    resolveSilentAggregateLines("read", lines, { expanded: true }),
+    lines,
+  );
+});
+
 test("leaves non-silent tool output untouched", () => {
   const lines = ["◐ bash ls"];
   assert.deepEqual(resolveSilentAggregateLines("bash", lines), lines);

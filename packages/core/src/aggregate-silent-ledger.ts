@@ -24,16 +24,24 @@ export function looksLikeAggregateLedger(lines: readonly string[]): boolean {
   return lines.some((line) => LEDGER_HEADER_PATTERN.test(visibleToolLine(line)));
 }
 
+export interface SilentAggregateOptions {
+  expanded?: boolean;
+}
+
 /**
  * Silent tools hide per-call rows, but the aggregate ledger is painted by the
  * group leader. If that leader is `read` / `replace` / `undo_last_replace`,
  * swallowing the whole render also swallows `✓ Tools (...)`.
+ *
+ * Ctrl+O leaves the collapsed ledger and paints one framed summary per call.
+ * Those expanded rows must stay visible.
  */
 export function resolveSilentAggregateLines(
   toolName: string,
   lines: readonly string[],
+  options: SilentAggregateOptions = {},
 ): string[] {
-  if (!shouldSilenceAggregateTool(toolName)) {
+  if (!shouldSilenceAggregateTool(toolName) || options.expanded === true) {
     return [...lines];
   }
   if (looksLikeAggregateLedger(lines)) {
