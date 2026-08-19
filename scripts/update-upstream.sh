@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 # Upstream packages orchestrated by pi-quiet-tools.
+PACKAGES=(
   "pi-hashline-edit-pro"
   "@zhcsyncer/pi-tool-display-intent"
 )

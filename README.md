@@ -34,10 +34,17 @@ Default UI policy:
 Install **only this package**. Do not also install the two upstream extensions separately — that registers `read` twice and Pi will error.
 
 ```bash
-pi install npm:pi-quiet-tools
-# or from a local checkout:
+# GitHub (Pi uses git:, not github:)
+pi install git:github.com/CodingOX/pi-quiet-tools
+pi install https://github.com/CodingOX/pi-quiet-tools
+
+# Local checkout
 pi install /path/to/pi-quiet-tools
 ```
+
+`github:CodingOX/pi-quiet-tools` is **not** a Pi source. Without `git:` or an `https://` URL, Pi treats it as a local path.
+
+This package is not published to npm yet. `pi install npm:pi-quiet-tools` will not work until it is.
 
 Then `/reload` or restart Pi.
 
