@@ -1,0 +1,34 @@
+{
+  "name": "@pi-quiet-tools/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi glue: hashline editing + quiet aggregate tool UI.",
+  "main": "index.ts",
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "dependencies": {
+    "@zhcsyncer/pi-tool-display-intent": "file:../../vendor/pi-extensions/packages/pi-tool-display-intent",
+    "pi-hashline-edit-pro": "^2.6.1"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.80.0 <1",
+    "@earendil-works/pi-tui": ">=0.80.0 <1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/aggregate-silent-ledger.test.ts"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}

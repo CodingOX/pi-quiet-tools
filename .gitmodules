@@ -1,0 +1,3 @@
+[submodule "vendor/pi-extensions"]
+	path = vendor/pi-extensions
+	url = git@github.com:CodingOX/pi-extensions.git

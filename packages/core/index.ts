@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import "./src/config-seed.js";
+import { installAggregateKeepNarrationPatch } from "./src/aggregate-keep-narration.js";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
 import {
   applyMinimalUiToHashlineTools,
@@ -15,6 +16,7 @@ import hashlineExtension from "pi-hashline-edit-pro";
 function installAggregateUiPatches(pi: ExtensionAPI): void {
   const refresh = (): void => {
     installAggregateSilentToolsPatch();
+    installAggregateKeepNarrationPatch();
   };
 
   refresh();

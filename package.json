@@ -1,43 +1,29 @@
 {
   "name": "pi-quiet-tools",
   "version": "0.1.0",
+  "private": false,
   "type": "module",
-  "description": "Pi glue extension: hashline editing + quiet aggregate tool UI. One install, minimal terminal noise.",
-  "main": "index.ts",
-  "keywords": [
-    "pi-package",
-    "pi-extension",
-    "pi-coding-agent",
-    "hashline",
-    "tool-display"
-  ],
+  "description": "Pi glue extension workspace: core package plus a tracking submodule of pi-extensions.",
   "license": "MIT",
+  "workspaces": [
+    "packages/core"
+  ],
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./packages/core/index.ts"
     ]
-  },
-  "dependencies": {
-    "@zhcsyncer/pi-tool-display-intent": "^0.9.0",
-    "pi-hashline-edit-pro": "^2.6.1"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.0 <1",
-    "@earendil-works/pi-tui": ">=0.80.0 <1"
   },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "prepare": "git submodule update --init --recursive || true",
+    "submodule:init": "git submodule update --init --recursive && bash scripts/bootstrap-submodule-remotes.sh",
+    "sync:display-intent": "bash scripts/sync-display-intent.sh",
+    "typecheck": "npm run typecheck -w @pi-quiet-tools/core",
+    "test": "npm run test -w @pi-quiet-tools/core",
     "update:upstream": "bash scripts/update-upstream.sh",
     "update:upstream:latest": "bash scripts/update-upstream.sh --latest",
     "update:upstream:check": "bash scripts/update-upstream.sh --check"
-  },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.0",
-    "@earendil-works/pi-tui": "0.84.0",
-    "@types/node": "^24.0.0",
-    "typescript": "^5.8.0"
   }
 }

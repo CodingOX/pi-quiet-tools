@@ -7,15 +7,19 @@ Glue extension for [Pi coding agent](https://github.com/badlogic/pi-mono/tree/ma
 | [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | Hash-anchored `read` / `replace` / `undo_last_replace` for the **model** |
 | [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | Aggregate Tools ledger and compact result modes for the **terminal** |
 
-This repo does **not** fork or vendor upstream code. It only wires them together and applies opinionated display defaults.
+This repo is a small workspace: glue in `packages/core`, plus a **git submodule** of display-intent (`vendor/pi-extensions`, fork of zhcsyncer). Pi still gets **one** install. Do not add the two upstream packages to Pi separately.
 
 ## What you get
 
 **In the terminal (human view):**
 
 ```text
+I'll inspect the current glue layer first, then the display patch.
+
 ✓ Tools (19 calls · 6 turns) · read ×9 · bash ×3 · ls ×2
   took 39s · tok ↑79k ↓1.2k · at 2026-08-18 23:15:19
+
+The read path is already silent. Next I'll tighten the aggregate wrap.
 
 [Assistant answer — the part you actually care about]
 ```
@@ -24,7 +28,8 @@ This repo does **not** fork or vendor upstream code. It only wires them together
 
 Default UI policy:
 
-- **Aggregate** Tools ledger (one block per turn)
+- **Aggregate** Tools ledger (one block per user request)
+- **Keep** mid-turn assistant Markdown (thinking stays hidden)
 - **Intent off** (`displaySummary` disabled)
 - **Summary mode** for grep / bash / write / etc.
 - **Silent** `read` / `replace` / `undo_last_replace` rows (counts only in the ledger)
@@ -34,12 +39,18 @@ Default UI policy:
 Install **only this package**. Do not also install the two upstream extensions separately — that registers `read` twice and Pi will error.
 
 ```bash
+# Local checkout (preferred while developing)
+git clone --recurse-submodules git@github.com:CodingOX/pi-quiet-tools.git
+cd pi-quiet-tools
+npm run submodule:init
+npm install
+pi install /absolute/path/to/pi-quiet-tools
+```
+
+```bash
 # GitHub (Pi uses git:, not github:)
 pi install git:github.com/CodingOX/pi-quiet-tools
 pi install https://github.com/CodingOX/pi-quiet-tools
-
-# Local checkout
-pi install /path/to/pi-quiet-tools
 ```
 
 `github:CodingOX/pi-quiet-tools` is **not** a Pi source. Without `git:` or an `https://` URL, Pi treats it as a local path.
@@ -59,26 +70,23 @@ pi remove npm:@zhcsyncer/pi-tool-display-intent
 
 Keep only `pi-quiet-tools` (or your local path) in `packages`.
 
-## Update upstream dependencies
+## Update upstream
 
-`pi install` / `pi update` updates **this glue package only**. It does **not** automatically bump nested upstream versions inside `node_modules`.
-
-From the repo root:
+**display-intent** is `vendor/pi-extensions` (your fork; `upstream` remote is zhcsyncer).
 
 ```bash
-# Bump within ^ ranges in package.json (usual workflow)
-npm run update:upstream
-
-# Pin both packages to npm latest and refresh lockfile
-npm run update:upstream:latest
-
-# Compare installed vs npm latest without changing anything
-npm run update:upstream:check
+npm run submodule:init          # first clone / add remotes
+npm run sync:display-intent     # rebase current fork branch onto zhcsyncer/main
 ```
 
-After updating, reload Pi (`/reload`).
+Then commit the new submodule SHA in this repo, and `git -C vendor/pi-extensions push origin HEAD`.
 
-If an upstream ships a **breaking major** version, this glue may need a code change — bumping `npm update` alone is not always enough.
+**hashline** is still npm:
+
+```bash
+npm run update:upstream:check
+npm run update:upstream
+```
 
 ## Configuration
 
@@ -97,7 +105,7 @@ Tweak display later with Pi's `/tool-display-intent` command (layout, result mod
 1. Seed / migrate display-intent config (aggregate + minimal passthrough).
 2. Hook `pi.registerTool` so hashline tools get silent renderers.
 3. Load display-intent, then hashline (skip either if already loaded).
-4. Patch aggregate rendering so hashline tool rows stay hidden.
+4. Patch aggregate rendering so hashline tool rows stay hidden, and interim assistant Markdown stays visible.
 
 Load order and duplicate detection matter — see [AGENTS.md](./AGENTS.md) if you hack on this repo.
 

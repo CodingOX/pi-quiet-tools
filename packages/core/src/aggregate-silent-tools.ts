@@ -1,15 +1,17 @@
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
+import {
+  resolveSilentAggregateLines,
+  SILENT_AGGREGATE_TOOLS,
+} from "./aggregate-silent-ledger.js";
 
 const AGGREGATE_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-tool-execution.v1",
 );
-const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v1");
+const SILENT_WRAP_KEY_V1 = Symbol.for("pi-tools.aggregate-silent-wrap.v1");
+const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v2");
+const SILENT_INNER_KEY = Symbol.for("pi-tools.aggregate-silent-inner.v2");
 
-export const SILENT_AGGREGATE_TOOLS = new Set([
-  "read",
-  "replace",
-  "undo_last_replace",
-]);
+export { SILENT_AGGREGATE_TOOLS };
 
 interface AggregatePatchState {
   patchedRender?: (width: number) => string[];
@@ -22,18 +24,19 @@ interface PatchableToolExecutionPrototype {
 }
 
 type PatchedRender = ((this: unknown, width: number) => string[]) & {
+  [SILENT_WRAP_KEY_V1]?: true;
   [SILENT_WRAP_KEY]?: true;
+  [SILENT_INNER_KEY]?: (this: unknown, width: number) => string[];
 };
-
-function shouldSilenceTool(toolName: string): boolean {
-  return SILENT_AGGREGATE_TOOLS.has(toolName);
-}
 
 export function installAggregateSilentToolsPatch(): void {
   const prototype = ToolExecutionComponent.prototype as PatchableToolExecutionPrototype;
   const aggregateState = prototype[AGGREGATE_PATCH_KEY];
-  const aggregateRender = aggregateState?.patchedRender as PatchedRender | undefined;
-  if (!aggregateRender || aggregateRender[SILENT_WRAP_KEY]) {
+  const currentRender = aggregateState?.patchedRender as PatchedRender | undefined;
+  if (!currentRender) {
+    return;
+  }
+  if (currentRender[SILENT_WRAP_KEY] || currentRender[SILENT_WRAP_KEY_V1]) {
     return;
   }
 
@@ -43,15 +46,14 @@ export function installAggregateSilentToolsPatch(): void {
   ): string[] {
     const context = this as { toolName?: unknown };
     const toolName = typeof context.toolName === "string" ? context.toolName : "";
-    if (shouldSilenceTool(toolName)) {
-      return [];
-    }
-    return aggregateRender.call(this, width);
+    const lines = currentRender.call(this, width);
+    return resolveSilentAggregateLines(toolName, lines);
   } as PatchedRender;
   wrappedRender[SILENT_WRAP_KEY] = true;
+  wrappedRender[SILENT_INNER_KEY] = currentRender;
 
   aggregateState!.patchedRender = wrappedRender;
-  if (prototype.render === aggregateRender) {
+  if (prototype.render === currentRender) {
     prototype.render = wrappedRender;
   }
 }

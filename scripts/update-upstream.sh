@@ -4,20 +4,22 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-# Upstream packages orchestrated by pi-quiet-tools.
-PACKAGES=(
+# hashline stays on npm. display-intent is the vendor/pi-extensions submodule.
+NPM_PACKAGES=(
   "pi-hashline-edit-pro"
-  "@zhcsyncer/pi-tool-display-intent"
 )
 
 usage() {
   cat <<'EOF'
-Update the two upstream Pi extensions this glue depends on.
+Update upstream sources this workspace depends on.
+
+  display-intent  vendor/pi-extensions submodule (git fetch / rebase)
+  hashline        npm package pi-hashline-edit-pro
 
 Usage:
-  scripts/update-upstream.sh           # bump within package.json ranges (^)
-  scripts/update-upstream.sh --latest  # pin package.json to npm latest, then install
-  scripts/update-upstream.sh --check   # show installed vs latest, do not write
+  scripts/update-upstream.sh           # fetch display-intent + bump hashline in ^ range
+  scripts/update-upstream.sh --latest  # fetch display-intent + pin hashline to npm latest
+  scripts/update-upstream.sh --check   # show status, do not write
 
 After a successful update, reload Pi (/reload) or restart it.
 EOF
@@ -40,7 +42,7 @@ installed_version() {
 range_in_package_json() {
   local name="$1"
   node -e "
-    const pkg = require('./package.json');
+    const pkg = require('./packages/core/package.json');
     process.stdout.write(pkg.dependencies[process.argv[1]] ?? '');
   " "$name"
 }
@@ -50,16 +52,28 @@ latest_version() {
   npm view "$name" version --silent
 }
 
+submodule_head() {
+  if [[ -e vendor/pi-extensions/.git ]]; then
+    git -C vendor/pi-extensions rev-parse --short HEAD
+  else
+    echo "missing"
+  fi
+}
+
 print_status() {
   printf '%-38s %-12s %-12s %-12s\n' "package" "installed" "range" "npm-latest"
   printf '%-38s %-12s %-12s %-12s\n' "-------" "---------" "-----" "----------"
-  for name in "${PACKAGES[@]}"; do
+  for name in "${NPM_PACKAGES[@]}"; do
     printf '%-38s %-12s %-12s %-12s\n' \
       "$name" \
       "$(installed_version "$name")" \
       "$(range_in_package_json "$name")" \
       "$(latest_version "$name")"
   done
+  printf '%-38s %-12s %-24s\n' \
+    "@zhcsyncer/pi-tool-display-intent" \
+    "$(installed_version "@zhcsyncer/pi-tool-display-intent")" \
+    "submodule $(submodule_head)"
 }
 
 MODE="range"
@@ -80,17 +94,24 @@ print_status
 echo
 
 if [[ "$MODE" == "check" ]]; then
+  if [[ -e vendor/pi-extensions/.git ]]; then
+    bash "$ROOT/scripts/bootstrap-submodule-remotes.sh"
+  fi
   exit 0
 fi
 
-if [[ "$MODE" == "latest" ]]; then
-  specs=()
-  for name in "${PACKAGES[@]}"; do
-    specs+=("${name}@latest")
-  done
-  npm install "${specs[@]}"
+if [[ -e vendor/pi-extensions/.git ]]; then
+  bash "$ROOT/scripts/bootstrap-submodule-remotes.sh"
 else
-  npm update "${PACKAGES[@]}"
+  echo "Initializing display-intent submodule..."
+  git submodule update --init --recursive
+  bash "$ROOT/scripts/bootstrap-submodule-remotes.sh"
+fi
+
+if [[ "$MODE" == "latest" ]]; then
+  npm install -w @pi-quiet-tools/core "pi-hashline-edit-pro@latest"
+else
+  npm update -w @pi-quiet-tools/core pi-hashline-edit-pro
 fi
 
 echo
@@ -98,3 +119,4 @@ echo "Upstream status after:"
 print_status
 echo
 echo "Done. Reload Pi with /reload (or restart) to pick up the new versions."
+echo "To take display-intent commits from zhcsyncer: npm run sync:display-intent"
