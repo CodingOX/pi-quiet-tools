@@ -16,10 +16,11 @@ This repo is a small workspace: glue in `packages/core`, plus a **git submodule*
 ```text
 I'll inspect the current glue layer first, then the display patch.
 
-✓ Tools (19 calls · 6 turns) · read ×9 · bash ×3 · ls ×2
-  took 39s · tok ↑79k ↓1.2k · at 2026-08-18 23:15:19
+✓ Tools (9 calls · 1 turn) · read ×9
 
 The read path is already silent. Next I'll tighten the aggregate wrap.
+
+✓ Tools (3 calls · 1 turn) · bash ×3
 
 [Assistant answer — the part you actually care about]
 ```
@@ -28,7 +29,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 
 Default UI policy:
 
-- **Aggregate** Tools ledger (one block per user request)
+- **Per-turn** Tools ledger (one small block after each assistant tool batch)
 - **Keep** mid-turn assistant Markdown (thinking stays hidden)
 - **Intent off** (`displaySummary` disabled)
 - **Summary mode** for grep / bash / write / etc.
@@ -96,13 +97,15 @@ On first run, if no display-intent config exists, defaults are written to:
 
 Existing configs are **not** overwritten. The glue migrates legacy passthrough entries (`read`, `replace`, `undo_last_replace`) on startup.
 
+If your current config still has `toolCalls.layout: "aggregate"` (one ledger for the whole request), switch with `/tool-display-intent layout per-turn` then `/reload`, or delete the config file to re-seed glue defaults.
+
 To reset to glue defaults: delete that config file and reload Pi.
 
 Tweak display later with Pi's `/tool-display-intent` command (layout, result mode, etc.). Some changes require `/reload`.
 
 ## How it works (short)
 
-1. Seed / migrate display-intent config (aggregate + minimal passthrough).
+1. Seed / migrate display-intent config (per-turn ledger + minimal passthrough).
 2. Hook `pi.registerTool` so hashline tools get silent renderers.
 3. Load display-intent, then hashline (skip either if already loaded).
 4. Patch aggregate rendering so hashline tool rows stay hidden, and interim assistant Markdown stays visible.
