@@ -1,4 +1,5 @@
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
+import { omitCollapsedLedgerNarration } from "./aggregate-omit-ledger-narration.js";
 import {
   resolveSilentAggregateLines,
   SILENT_AGGREGATE_TOOLS,
@@ -7,7 +8,7 @@ import {
 const AGGREGATE_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-tool-execution.v1",
 );
-const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v3");
+const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v4");
 const SILENT_INNER_KEY = Symbol.for("pi-tools.aggregate-silent-inner.v2");
 
 export { SILENT_AGGREGATE_TOOLS };
@@ -61,9 +62,11 @@ export function installAggregateSilentToolsPatch(): void {
     const context = this as { toolName?: unknown; expanded?: unknown };
     const toolName = typeof context.toolName === "string" ? context.toolName : "";
     const lines = innerRender.call(this, width);
-    return resolveSilentAggregateLines(toolName, lines, {
-      expanded: context.expanded === true,
-    });
+    return omitCollapsedLedgerNarration(
+      resolveSilentAggregateLines(toolName, lines, {
+        expanded: context.expanded === true,
+      }),
+    );
   } as PatchedRender;
   wrappedRender[SILENT_WRAP_KEY] = true;
   wrappedRender[SILENT_INNER_KEY] = innerRender;

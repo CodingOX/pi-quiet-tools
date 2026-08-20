@@ -1,9 +1,10 @@
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
+import { omitCollapsedLedgerNarration } from "./aggregate-omit-ledger-narration.js";
 
 const THINKING_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-thinking-placeholder.v1",
 );
-const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v1");
+const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v2");
 
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
@@ -176,7 +177,7 @@ function wrapAssistantRender(): void {
     this: unknown,
     width: number,
   ): string[] {
-    const painted = liveRender.call(this, width);
+    const painted = omitCollapsedLedgerNarration(liveRender.call(this, width));
     if (painted.length > 0) {
       return painted;
     }
