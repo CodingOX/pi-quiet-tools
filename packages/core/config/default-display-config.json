@@ -16,7 +16,6 @@
   },
   "tools": {
     "passthrough": [
-      "Agent",
       "edit"
     ]
   },

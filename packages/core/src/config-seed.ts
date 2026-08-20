@@ -6,11 +6,45 @@ import { getToolDisplayConfigPath } from "./agent-dir.js";
 const PACKAGE_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const DEFAULT_CONFIG_PATH = join(PACKAGE_ROOT, "config", "default-display-config.json");
 
-const LEGACY_PASSTHROUGH_TOOLS = new Set([
+const QUIET_TOOLS_PASSTHROUGH_TO_REMOVE = new Set([
+  "Agent",
   "read",
   "replace",
   "undo_last_replace",
 ]);
+export function removeQuietToolsPassthrough(raw: Record<string, unknown>): boolean {
+  if (raw.tools === undefined) {
+    raw.tools = { passthrough: [] };
+    return true;
+  }
+
+  const tools = raw.tools;
+  if (!tools || typeof tools !== "object" || Array.isArray(tools)) {
+    return false;
+  }
+
+  const toolSettings = tools as Record<string, unknown>;
+  if (toolSettings.passthrough === undefined) {
+    toolSettings.passthrough = [];
+    return true;
+  }
+
+  const passthrough = toolSettings.passthrough;
+  if (!Array.isArray(passthrough)) {
+    return false;
+  }
+
+  const filtered = passthrough.filter(
+    (name) =>
+      typeof name !== "string" || !QUIET_TOOLS_PASSTHROUGH_TO_REMOVE.has(name),
+  );
+  if (filtered.length === passthrough.length) {
+    return false;
+  }
+
+  toolSettings.passthrough = filtered;
+  return true;
+}
 
 function migrateLegacyPassthrough(): void {
   const configPath = getToolDisplayConfigPath();
@@ -25,25 +59,10 @@ function migrateLegacyPassthrough(): void {
     return;
   }
 
-  const tools = raw.tools;
-  if (!tools || typeof tools !== "object" || Array.isArray(tools)) {
+  if (!removeQuietToolsPassthrough(raw)) {
     return;
   }
 
-  const passthrough = (tools as Record<string, unknown>).passthrough;
-  if (!Array.isArray(passthrough)) {
-    return;
-  }
-
-  const filtered = passthrough.filter(
-    (name): name is string =>
-      typeof name === "string" && !LEGACY_PASSTHROUGH_TOOLS.has(name),
-  );
-  if (filtered.length === passthrough.length) {
-    return;
-  }
-
-  (tools as Record<string, unknown>).passthrough = filtered;
   writeFileSync(configPath, `${JSON.stringify(raw, null, 2)}\n`, {
     encoding: "utf-8",
     mode: 0o600,
