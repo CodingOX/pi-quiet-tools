@@ -71,16 +71,41 @@ function isInterimAssistantNarration(component: unknown): boolean {
   );
 }
 
+const GPT_THINKING_BLOCK_PATTERN = /<thinking\b[^>]*>[\s\S]*?<\/thinking\s*>/gi;
+const GPT_UNCLOSED_THINKING_PATTERN = /<thinking\b[^>]*>[\s\S]*$/i;
+
 function omitThinkingContentBlocks(message: unknown): unknown {
   if (!message || typeof message !== "object") {
     return message;
   }
   const content = messageContentBlocks(message);
-  const next = content.filter((entry) => toRecord(entry).type !== "thinking");
-  if (next.length === content.length) {
-    return message;
-  }
-  return { ...toRecord(message), content: next };
+  let changed = false;
+  const next = content
+    .filter((entry) => {
+      const keep = toRecord(entry).type !== "thinking";
+      changed ||= !keep;
+      return keep;
+    })
+    .map((entry) => {
+      const block = toRecord(entry);
+      if (block.type !== "text" || typeof block.text !== "string") {
+        return entry;
+      }
+
+      // Some GPT-compatible gateways serialize reasoning as ordinary text rather
+      // than Pi's structured `thinking` blocks. This render-only recovery path
+      // handles assistant messages between tool phases, so suppress both complete
+      // tags and a trailing unclosed tag while the response is still streaming.
+      const text = block.text
+        .replace(GPT_THINKING_BLOCK_PATTERN, "")
+        .replace(GPT_UNCLOSED_THINKING_PATTERN, "");
+      if (text === block.text) {
+        return entry;
+      }
+      changed = true;
+      return { ...block, text };
+    });
+  return changed ? { ...toRecord(message), content: next } : message;
 }
 
 function visibleText(line: string): string {
@@ -125,12 +150,11 @@ export function recoverSwallowedNarration(
   if (!isInterimAssistantNarration(component)) {
     return [];
   }
-  if (!messageHasNarrationText(component.lastMessage)) {
-    return [];
-  }
-
   const originalMessage = component.lastMessage;
   const stripped = omitThinkingContentBlocks(originalMessage);
+  if (!messageHasNarrationText(stripped)) {
+    return [];
+  }
   let lines: string[];
   if (stripped !== originalMessage && typeof component.updateContent === "function") {
     try {
