@@ -73,6 +73,8 @@ function isInterimAssistantNarration(component: unknown): boolean {
 
 const GPT_THINKING_BLOCK_PATTERN = /<thinking\b[^>]*>[\s\S]*?<\/thinking\s*>/gi;
 const GPT_UNCLOSED_THINKING_PATTERN = /<thinking\b[^>]*>[\s\S]*$/i;
+// Magic Context 为会话编排附加的消息序号只可能出现在恢复路径的首段文本。
+const SESSION_SEQUENCE_PREFIX_PATTERN = /^\s*§\d+§(?:[ \t]*\r?\n|[ \t]+)?/;
 
 function omitThinkingContentBlocks(message: unknown): unknown {
   if (!message || typeof message !== "object") {
@@ -80,6 +82,7 @@ function omitThinkingContentBlocks(message: unknown): unknown {
   }
   const content = messageContentBlocks(message);
   let changed = false;
+  let isFirstTextBlock = true;
   const next = content
     .filter((entry) => {
       const keep = toRecord(entry).type !== "thinking";
@@ -96,9 +99,13 @@ function omitThinkingContentBlocks(message: unknown): unknown {
       // than Pi's structured `thinking` blocks. This render-only recovery path
       // handles assistant messages between tool phases, so suppress both complete
       // tags and a trailing unclosed tag while the response is still streaming.
-      const text = block.text
+      let text = block.text
         .replace(GPT_THINKING_BLOCK_PATTERN, "")
         .replace(GPT_UNCLOSED_THINKING_PATTERN, "");
+      if (isFirstTextBlock && text.trim()) {
+        isFirstTextBlock = false;
+        text = text.replace(SESSION_SEQUENCE_PREFIX_PATTERN, "");
+      }
       if (text === block.text) {
         return entry;
       }
@@ -116,6 +123,31 @@ function visibleText(line: string): string {
     .trim();
 }
 
+/**
+ * Ctrl+O frames interim assistant prose as `│ › ...` beside the expanded
+ * tool timeline. Quiet-tools owns prose presentation, so preserve the actual
+ * tool rows and let the normal Markdown recovery path render the prose.
+ */
+export function removeExpandedNarrationFrame(lines: readonly string[]): string[] {
+  let foundNarrationFrame = false;
+  const preserved: string[] = [];
+
+  for (const line of lines) {
+    const visible = visibleText(line);
+    if (/^[│└]\s*›(?:\s|$)/.test(visible)) {
+      foundNarrationFrame = true;
+      continue;
+    }
+    const isFramedLine = /^[│└](?:\s|$)/.test(visible);
+    const isToolOrSteerLine = /^[│└]\s+[✓◐!↳…]/.test(visible);
+    if (foundNarrationFrame && isFramedLine && !isToolOrSteerLine) {
+      continue;
+    }
+    preserved.push(line);
+  }
+
+  return preserved;
+}
 function resolveHiddenThinkingLabel(component: AssistantRenderContext): string {
   const label = component.hiddenThinkingLabel;
   if (typeof label !== "string") {
@@ -201,16 +233,22 @@ function wrapAssistantRender(): void {
     this: unknown,
     width: number,
   ): string[] {
-    const painted = omitCollapsedLedgerNarration(liveRender.call(this, width));
-    if (painted.length > 0) {
+    const rendered = omitCollapsedLedgerNarration(liveRender.call(this, width));
+    const painted = removeExpandedNarrationFrame(rendered);
+    const removedExpandedNarration = painted.length !== rendered.length;
+    if (!removedExpandedNarration && painted.length > 0) {
       return painted;
     }
     try {
-      return recoverSwallowedNarration(
+      const narration = recoverSwallowedNarration(
         this as AssistantRenderContext,
         originalRender,
         width,
       );
+      if (removedExpandedNarration && painted.length > 0 && narration.length > 0) {
+        return [...painted, "", ...narration];
+      }
+      return narration.length > 0 ? narration : painted;
     } catch {
       return painted;
     }
