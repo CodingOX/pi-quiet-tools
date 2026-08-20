@@ -113,7 +113,7 @@ function stripThinkingPlaceholderLines(
   return kept;
 }
 
-function recoverSwallowedNarration(
+export function recoverSwallowedNarration(
   component: AssistantRenderContext,
   originalRender: (this: unknown, width: number) => string[],
   width: number,
@@ -153,7 +153,9 @@ function recoverSwallowedNarration(
   if (trimmed.length === 0) {
     return [];
   }
-  return visibleText(trimmed[0] ?? "") === "" ? trimmed : ["", ...trimmed];
+  // The aggregate ledger owns the preceding separation. Do not add another blank
+  // row here, or resumed narration is pushed two lines away from its tool activity.
+  return trimmed;
 }
 
 function wrapAssistantRender(): void {
