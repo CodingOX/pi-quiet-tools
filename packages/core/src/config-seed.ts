@@ -6,15 +6,30 @@ import { getToolDisplayConfigPath } from "./agent-dir.js";
 const PACKAGE_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const DEFAULT_CONFIG_PATH = join(PACKAGE_ROOT, "config", "default-display-config.json");
 
-const QUIET_TOOLS_PASSTHROUGH_TO_REMOVE = new Set([
-  "Agent",
+/**
+ * 不进入安静 Tools 账本、保留原 renderer 的工具。
+ *
+ * 这些是用户必须单独看见的高信号事件，不能只剩账本上的 `×N` 计数。
+ * 后续若要把别的工具也从账本里拿出来，把名字加进这个列表即可：
+ * seed 和迁移会把它写入 `tools.passthrough`，不会动 `edit` 等其它透传项。
+ *
+ * - Agent：派发子代理是独立事件，必须走自己的进度 renderer。
+ */
+export const QUIET_UI_PASSTHROUGH_KEEP = ["Agent"] as const;
+
+/**
+ * Hashline 工具必须留在账本里只显示计数。旧配置若把它们放进 passthrough，
+ * 终端会出现逐次 Read / replace 行。
+ */
+const QUIET_UI_PASSTHROUGH_REMOVE = new Set([
   "read",
   "replace",
   "undo_last_replace",
 ]);
-export function removeQuietToolsPassthrough(raw: Record<string, unknown>): boolean {
+
+export function migrateQuietToolsPassthrough(raw: Record<string, unknown>): boolean {
   if (raw.tools === undefined) {
-    raw.tools = { passthrough: [] };
+    raw.tools = { passthrough: [...QUIET_UI_PASSTHROUGH_KEEP] };
     return true;
   }
 
@@ -25,7 +40,7 @@ export function removeQuietToolsPassthrough(raw: Record<string, unknown>): boole
 
   const toolSettings = tools as Record<string, unknown>;
   if (toolSettings.passthrough === undefined) {
-    toolSettings.passthrough = [];
+    toolSettings.passthrough = [...QUIET_UI_PASSTHROUGH_KEEP];
     return true;
   }
 
@@ -34,15 +49,26 @@ export function removeQuietToolsPassthrough(raw: Record<string, unknown>): boole
     return false;
   }
 
-  const filtered = passthrough.filter(
+  const next = passthrough.filter(
     (name) =>
-      typeof name !== "string" || !QUIET_TOOLS_PASSTHROUGH_TO_REMOVE.has(name),
+      typeof name !== "string" || !QUIET_UI_PASSTHROUGH_REMOVE.has(name),
   );
-  if (filtered.length === passthrough.length) {
+  const present = new Set(
+    next.filter((name): name is string => typeof name === "string"),
+  );
+  const missing = QUIET_UI_PASSTHROUGH_KEEP.filter((name) => !present.has(name));
+  if (missing.length > 0) {
+    next.unshift(...missing);
+  }
+  if (
+    missing.length === 0 &&
+    next.length === passthrough.length &&
+    next.every((name, index) => name === passthrough[index])
+  ) {
     return false;
   }
 
-  toolSettings.passthrough = filtered;
+  toolSettings.passthrough = next;
   return true;
 }
 
@@ -59,7 +85,7 @@ function migrateLegacyPassthrough(): void {
     return;
   }
 
-  if (!removeQuietToolsPassthrough(raw)) {
+  if (!migrateQuietToolsPassthrough(raw)) {
     return;
   }
 

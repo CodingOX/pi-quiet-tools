@@ -97,7 +97,7 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 4. Mid-turn assistant prose (text before `toolUse`) stays visible as Markdown; thinking stays hidden.
 5. `replace` still works for the agent (hashline behavior unchanged).
 6. `/reload` does not duplicate tools or lose silent UI / narration.
-7. Existing display-intent config: passthrough migration removes `read` / `replace` / `undo_last_replace` if present. Layout stays as saved (`aggregate` vs `per-turn`).
+7. Existing display-intent config: passthrough migration removes `read` / `replace` / `undo_last_replace` if present, and restores `Agent` so subagent dispatch stays outside the quiet Tools ledger. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
 
 ## Naming
 

@@ -17,6 +17,17 @@ test("keeps an ANSI-colored Tools ledger", () => {
   assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
 });
 
+test("strips ANSI-colored silent retained rows from a Tools ledger", () => {
+  const lines = [
+    "\x1b[32m✓\x1b[0m Tools (2 calls · 1 turn) · replace ×2",
+    "  \x1b[32m✓\x1b[0m \x1b[36mreplace\x1b[0m",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("replace", lines), [
+    "\x1b[32m✓\x1b[0m Tools (2 calls · 1 turn) · replace ×2",
+  ]);
+});
+
 test("drops a silent per-call row", () => {
   assert.deepEqual(resolveSilentAggregateLines("read", ["✓ read README.md"]), []);
 });
@@ -39,6 +50,33 @@ test("keeps an expanded silent host that still paints the Tools header", () => {
     resolveSilentAggregateLines("read", lines, { expanded: true }),
     lines,
   );
+});
+
+test("strips retained silent rows from a replace-led Tools ledger", () => {
+  const lines = [
+    "✓ Tools (4 calls · 2 turns) · replace ×4",
+    "  ✓ replace",
+    "  ✓ replace",
+    "  ✓ replace",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("replace", lines), [
+    "✓ Tools (4 calls · 2 turns) · replace ×4",
+  ]);
+});
+
+test("strips silent retained rows even when a non-silent tool hosts the ledger", () => {
+  const lines = [
+    "◐ Tools (5 calls · 1 turn) · bash ×1 · replace ×3 · read ×1",
+    "  ✓ replace",
+    "  ✓ Read(src/a.ts)",
+    "  ◐ Bash(pnpm test)",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("bash", lines), [
+    "◐ Tools (5 calls · 1 turn) · bash ×1 · replace ×3 · read ×1",
+    "  ◐ Bash(pnpm test)",
+  ]);
 });
 
 test("leaves non-silent tool output untouched", () => {
