@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const DISPLAY_INTENT_API_KEY = Symbol.for("pi-tool-display-intent.api.v1");
+const DISPLAY_INTENT_RUNTIME_OWNERS_KEY = Symbol.for("pi-tool-display-intent.runtime-owners.v1");
 const HASHLINE_TOOL_NAMES = ["read", "replace", "undo_last_replace"] as const;
 
 interface ToolWithSource {
@@ -33,7 +34,13 @@ export function hashlineAlreadyActive(pi: ExtensionAPI): boolean {
   }
 }
 
-export function displayIntentAlreadyActive(): boolean {
-  const api = (globalThis as Record<symbol, unknown>)[DISPLAY_INTENT_API_KEY];
+export function displayIntentAlreadyActive(pi: ExtensionAPI): boolean {
+  const globalState = globalThis as Record<symbol, unknown>;
+  const owners = globalState[DISPLAY_INTENT_RUNTIME_OWNERS_KEY];
+  if (owners instanceof WeakSet) return owners.has(pi);
+
+  // Older standalone releases expose only the API marker. Preserve the legacy
+  // duplicate guard when no runtime-aware ownership registry is available.
+  const api = globalState[DISPLAY_INTENT_API_KEY];
   return api !== undefined && typeof api === "object" && api !== null;
 }

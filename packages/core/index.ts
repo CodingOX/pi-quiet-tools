@@ -36,7 +36,7 @@ export default function piToolsGlueExtension(pi: ExtensionAPI): void {
   installRegisterToolHook(pi);
   installQuietSubagentNotificationRenderer(pi);
 
-  if (!displayIntentAlreadyActive()) {
+  if (!displayIntentAlreadyActive(pi)) {
     toolDisplayIntentExtension(pi);
   }
 
