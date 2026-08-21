@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   appendRecoveredNarration,
+  installAggregateKeepNarrationPatch,
   recoverSwallowedNarration,
   removeExpandedNarrationFrame,
 } from "./aggregate-keep-narration.ts";
@@ -194,6 +195,90 @@ test("does not recover a final answer with a session sequence prefix", () => {
 
   assert.deepEqual(lines, []);
   assert.equal(updated, false);
+});
+
+test("strips a session sequence across text-only and tool-use streaming frames", async () => {
+  const { AssistantMessageComponent } = await import(
+    "@earendil-works/pi-coding-agent"
+  );
+  type FixtureMessage = {
+    stopReason?: string;
+    content: Array<{ type: string; text?: string }>;
+  };
+  type FixtureComponent = {
+    lastMessage: FixtureMessage;
+    updateContent(message: unknown): void;
+  };
+  type PatchablePrototype = Record<PropertyKey, unknown> & {
+    render(this: unknown, width: number): string[];
+  };
+
+  const thinkingPatchKey = Symbol.for(
+    "pi-tool-display-intent.aggregate-thinking-placeholder.v1",
+  );
+  const prototype =
+    AssistantMessageComponent.prototype as unknown as PatchablePrototype;
+  const previousRender = prototype.render;
+  const previousThinkingState = prototype[thinkingPatchKey];
+  const originalRender = function originalRender(
+    this: FixtureComponent,
+    _width: number,
+  ): string[] {
+    return this.lastMessage.content.flatMap((block) =>
+      block.type === "text" && block.text ? [block.text] : [],
+    );
+  };
+  const aggregateRender = function aggregateRender(
+    this: FixtureComponent,
+    width: number,
+  ): string[] {
+    const hasToolCall = this.lastMessage.content.some(
+      (block) => block.type === "toolCall",
+    );
+    return hasToolCall ? [] : originalRender.call(this, width);
+  };
+
+  prototype.render = aggregateRender as PatchablePrototype["render"];
+  prototype[thinkingPatchKey] = {
+    originalRender,
+    patchedRender: aggregateRender,
+  };
+
+  try {
+    installAggregateKeepNarrationPatch();
+    const render = prototype.render;
+    const component: FixtureComponent = {
+      lastMessage: {
+        content: [{ type: "text", text: "§26§ 额外发现一个关键点" }],
+      },
+      updateContent(message: unknown) {
+        this.lastMessage = message as FixtureMessage;
+      },
+    };
+    const textOnlyMessage = component.lastMessage;
+
+    assert.deepEqual(render.call(component, 80), ["额外发现一个关键点"]);
+    assert.equal(component.lastMessage, textOnlyMessage);
+
+    component.lastMessage = {
+      stopReason: "toolUse",
+      content: [
+        { type: "text", text: "§26§ 额外发现一个关键点" },
+        { type: "toolCall" },
+      ],
+    };
+    const toolUseMessage = component.lastMessage;
+
+    assert.deepEqual(render.call(component, 80), ["额外发现一个关键点"]);
+    assert.equal(component.lastMessage, toolUseMessage);
+  } finally {
+    prototype.render = previousRender;
+    if (previousThinkingState === undefined) {
+      delete prototype[thinkingPatchKey];
+    } else {
+      prototype[thinkingPatchKey] = previousThinkingState;
+    }
+  }
 });
 
 test("keeps an expanded Tools ledger but removes its framed narration", () => {

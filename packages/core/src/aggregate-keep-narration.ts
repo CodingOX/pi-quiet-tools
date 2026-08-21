@@ -60,6 +60,10 @@ interface AssistantRenderContext {
   updateContent?: (message: unknown, isStreaming?: boolean) => void;
 }
 
+interface AssistantMessageProjection extends Record<string, unknown> {
+  content?: unknown[];
+}
+
 type WrappedRender = ((this: unknown, width: number) => string[]) & {
   [LEGACY_NARRATION_WRAP_KEY]?: true;
   [NARRATION_WRAP_KEY]?: true;
@@ -87,18 +91,22 @@ function messageHasNarrationText(message: unknown): boolean {
   });
 }
 
-function isInterimAssistantNarration(component: unknown): boolean {
-  const message = toRecord(toRecord(component).lastMessage);
-  const stopReason = message.stopReason;
-  if (
+function isTerminalAssistantMessage(message: unknown): boolean {
+  const stopReason = toRecord(message).stopReason;
+  return (
     stopReason === "error" ||
     stopReason === "aborted" ||
     stopReason === "length" ||
     stopReason === "stop"
-  ) {
+  );
+}
+
+function isInterimAssistantNarration(component: unknown): boolean {
+  const message = toRecord(toRecord(component).lastMessage);
+  if (isTerminalAssistantMessage(message)) {
     return false;
   }
-  if (stopReason === "toolUse") {
+  if (message.stopReason === "toolUse") {
     return true;
   }
   return messageContentBlocks(message).some(
@@ -108,16 +116,45 @@ function isInterimAssistantNarration(component: unknown): boolean {
 
 const GPT_THINKING_BLOCK_PATTERN = /<thinking\b[^>]*>[\s\S]*?<\/thinking\s*>/gi;
 const GPT_UNCLOSED_THINKING_PATTERN = /<thinking\b[^>]*>[\s\S]*$/i;
-// Magic Context 为会话编排附加的消息序号只可能出现在恢复路径的首段文本。
+// Magic Context 为会话编排附加的消息序号只可能出现在首段可见文本。
 const SESSION_SEQUENCE_PREFIX_PATTERN = /^\s*§\d+§(?:[ \t]*\r?\n|[ \t]+)?/;
 
-function omitThinkingContentBlocks(message: unknown): unknown {
+function omitSessionSequencePrefix(
+  message: unknown,
+): AssistantMessageProjection | undefined {
   if (!message || typeof message !== "object") {
-    return message;
+    return undefined;
+  }
+  let changed = false;
+  let isFirstTextBlock = true;
+  const content = messageContentBlocks(message).map((entry) => {
+    const block = toRecord(entry);
+    if (block.type !== "text" || typeof block.text !== "string") {
+      return entry;
+    }
+    if (!isFirstTextBlock || !block.text.trim()) {
+      return entry;
+    }
+
+    isFirstTextBlock = false;
+    const text = block.text.replace(SESSION_SEQUENCE_PREFIX_PATTERN, "");
+    if (text === block.text) {
+      return entry;
+    }
+    changed = true;
+    return { ...block, text };
+  });
+  return changed ? { ...toRecord(message), content } : toRecord(message);
+}
+
+function omitThinkingContentBlocks(
+  message: unknown,
+): AssistantMessageProjection | undefined {
+  if (!message || typeof message !== "object") {
+    return undefined;
   }
   const content = messageContentBlocks(message);
   let changed = false;
-  let isFirstTextBlock = true;
   const next = content
     .filter((entry) => {
       const keep = toRecord(entry).type !== "thinking";
@@ -134,20 +171,43 @@ function omitThinkingContentBlocks(message: unknown): unknown {
       // than Pi's structured `thinking` blocks. This render-only recovery path
       // handles assistant messages between tool phases, so suppress both complete
       // tags and a trailing unclosed tag while the response is still streaming.
-      let text = block.text
+      const text = block.text
         .replace(GPT_THINKING_BLOCK_PATTERN, "")
         .replace(GPT_UNCLOSED_THINKING_PATTERN, "");
-      if (isFirstTextBlock && text.trim()) {
-        isFirstTextBlock = false;
-        text = text.replace(SESSION_SEQUENCE_PREFIX_PATTERN, "");
-      }
       if (text === block.text) {
         return entry;
       }
       changed = true;
       return { ...block, text };
     });
-  return changed ? { ...toRecord(message), content: next } : message;
+  const withoutThinking = changed
+    ? { ...toRecord(message), content: next }
+    : toRecord(message);
+  return omitSessionSequencePrefix(withoutThinking);
+}
+
+function renderWithTemporaryMessage(
+  component: AssistantRenderContext,
+  message: unknown,
+  render: (this: unknown, width: number) => string[],
+  width: number,
+): string[] {
+  const originalMessage = component.lastMessage;
+  if (message === originalMessage || typeof component.updateContent !== "function") {
+    return render.call(component, width);
+  }
+
+  // 只替换当前组件的渲染投影；Pi 的 updateContent 默认会保留流式状态。
+  try {
+    component.updateContent(message);
+    return render.call(component, width);
+  } finally {
+    try {
+      component.updateContent(originalMessage);
+    } catch {
+      // Restore must stay fail-open so a later invalidate can rebuild.
+    }
+  }
 }
 
 function visibleText(line: string): string {
@@ -247,21 +307,12 @@ export function recoverSwallowedNarration(
   if (!messageHasNarrationText(stripped)) {
     return [];
   }
-  let lines: string[];
-  if (stripped !== originalMessage && typeof component.updateContent === "function") {
-    try {
-      component.updateContent(stripped);
-      lines = originalRender.call(component, width);
-    } finally {
-      try {
-        component.updateContent(originalMessage);
-      } catch {
-        // Restore must stay fail-open so a later invalidate can rebuild.
-      }
-    }
-  } else {
-    lines = originalRender.call(component, width);
-  }
+  const lines = renderWithTemporaryMessage(
+    component,
+    stripped,
+    originalRender,
+    width,
+  );
 
   const recovered = stripThinkingPlaceholderLines(
     lines,
@@ -297,7 +348,14 @@ function wrapAssistantRender(): void {
     this: unknown,
     width: number,
   ): string[] {
-    const rendered = omitCollapsedLedgerNarration(liveRender.call(this, width));
+    const component = this as AssistantRenderContext;
+    const originalMessage = component.lastMessage;
+    const renderMessage = isTerminalAssistantMessage(originalMessage)
+      ? originalMessage
+      : omitSessionSequencePrefix(originalMessage);
+    const rendered = omitCollapsedLedgerNarration(
+      renderWithTemporaryMessage(component, renderMessage, liveRender, width),
+    );
     const painted = removeExpandedNarrationFrame(rendered);
     const removedExpandedNarration = painted.length !== rendered.length;
     if (!removedExpandedNarration && painted.length > 0 && !wrapsLegacyNarration) {
@@ -305,7 +363,7 @@ function wrapAssistantRender(): void {
     }
     try {
       const narration = recoverSwallowedNarration(
-        this as AssistantRenderContext,
+        component,
         originalRender,
         width,
       );
