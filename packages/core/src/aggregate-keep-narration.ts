@@ -1,5 +1,6 @@
 import { AssistantMessageComponent } from "@earendil-works/pi-coding-agent";
 import { omitCollapsedLedgerNarration } from "./aggregate-omit-ledger-narration.js";
+import { visibleTerminalText } from "./terminal-text.js";
 
 const THINKING_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-thinking-placeholder.v1",
@@ -11,9 +12,6 @@ const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v
 const PRECEDING_TOOLS_LEDGER_STATE_KEY = Symbol.for(
   "pi-quiet-tools.aggregate-keep-narration.preceding-tools-ledger.v1",
 );
-
-const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const DEFAULT_HIDDEN_THINKING_LABEL = "Thinking...";
 
 type PrecedingToolsLedgerResolver = (message: unknown) => boolean;
@@ -153,11 +151,7 @@ function omitThinkingContentBlocks(message: unknown): unknown {
 }
 
 function visibleText(line: string): string {
-  return line
-    .replace(OSC_SEQUENCE_PATTERN, "")
-    .replace(ANSI_SEQUENCE_PATTERN, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return visibleTerminalText(line);
 }
 
 /**
@@ -284,6 +278,7 @@ export function recoverSwallowedNarration(
 }
 
 function wrapAssistantRender(): void {
+  // SAFETY: Pi 运行时原型提供 render；仅在检测到上游聚合补丁后包装该方法。
   const prototype =
     AssistantMessageComponent.prototype as unknown as PatchableAssistantPrototype;
   const thinkingState = prototype[THINKING_PATCH_KEY];

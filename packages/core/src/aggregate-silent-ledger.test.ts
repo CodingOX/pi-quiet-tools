@@ -45,3 +45,9 @@ test("leaves non-silent tool output untouched", () => {
   const lines = ["◐ bash ls"];
   assert.deepEqual(resolveSilentAggregateLines("bash", lines), lines);
 });
+
+test("recognizes a Tools ledger through OSC and ANSI sequences", () => {
+  const lines = ["\x1b]0;quiet\x07\x1b[2m✓ Tools (1 call · 1 turn) · read ×1\x1b[0m"];
+
+  assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
+});

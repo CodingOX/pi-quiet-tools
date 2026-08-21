@@ -57,3 +57,16 @@ test("leaves non-ledger output untouched", () => {
   const lines = ["  › 这不是 Tools 账本"];
   assert.deepEqual(omitCollapsedLedgerNarration(lines), lines);
 });
+
+test("drops an OSC-colored collapsed pin without affecting framed timeline rows", () => {
+  const lines = [
+    "✓ Tools (1 call · 1 turn) · read ×1",
+    "  \x1b]0;quiet\x07\x1b[2m›\x1b[0m 正在读取配置",
+    "  │ ✓ Read(config.json)",
+  ];
+
+  assert.deepEqual(omitCollapsedLedgerNarration(lines), [
+    "✓ Tools (1 call · 1 turn) · read ×1",
+    "  │ ✓ Read(config.json)",
+  ]);
+});

@@ -1,15 +1,10 @@
 import { looksLikeAggregateLedger } from "./aggregate-silent-ledger.js";
+import { stripTerminalSequences as stripRenderSequences } from "./terminal-text.js";
 
-const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const COLLAPSED_NARRATION_MARK = "›";
 const FRAME_EDGE_PATTERN = /[│└]/;
 const TOOL_OR_STEER_MARKER_PATTERN = /^[✓◐!↳…]/;
 const LEDGER_HEADER_PATTERN = /^Tools\s*\(\s*\d+\s+calls?/;
-
-function stripRenderSequences(line: string): string {
-  return line.replace(OSC_SEQUENCE_PATTERN, "").replace(ANSI_SEQUENCE_PATTERN, "");
-}
 
 function isCollapsedNarrationStart(line: string): boolean {
   const plain = stripRenderSequences(line);

@@ -1,19 +1,15 @@
+import { visibleTerminalText } from "./terminal-text.js";
+
 export const SILENT_AGGREGATE_TOOLS = new Set([
   "read",
   "replace",
   "undo_last_replace",
 ]);
 
-const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
-const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const LEDGER_HEADER_PATTERN = /Tools\s*\(\s*\d+\s+calls?/;
 
 export function visibleToolLine(line: string): string {
-  return line
-    .replace(OSC_SEQUENCE_PATTERN, "")
-    .replace(ANSI_SEQUENCE_PATTERN, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return visibleTerminalText(line);
 }
 
 export function shouldSilenceAggregateTool(toolName: string): boolean {
