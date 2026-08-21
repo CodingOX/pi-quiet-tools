@@ -17,8 +17,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "prepare": "git submodule update --init --recursive || true",
-    "submodule:init": "git submodule update --init --recursive && bash scripts/bootstrap-submodule-remotes.sh",
+    "preinstall": "bash scripts/init-submodule.sh",
+    "submodule:init": "bash scripts/init-submodule.sh && bash scripts/bootstrap-submodule-remotes.sh",
     "sync:display-intent": "bash scripts/sync-display-intent.sh",
     "typecheck": "npm run typecheck -w @pi-quiet-tools/core",
     "test": "npm run test -w @pi-quiet-tools/core",

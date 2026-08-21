@@ -100,13 +100,8 @@ if [[ "$MODE" == "check" ]]; then
   exit 0
 fi
 
-if [[ -e vendor/pi-extensions/.git ]]; then
-  bash "$ROOT/scripts/bootstrap-submodule-remotes.sh"
-else
-  echo "Initializing display-intent submodule..."
-  git submodule update --init --recursive
-  bash "$ROOT/scripts/bootstrap-submodule-remotes.sh"
-fi
+bash "$ROOT/scripts/init-submodule.sh"
+bash "$ROOT/scripts/bootstrap-submodule-remotes.sh"
 
 if [[ "$MODE" == "latest" ]]; then
   npm install -w @pi-quiet-tools/core "pi-hashline-edit-pro@latest"
