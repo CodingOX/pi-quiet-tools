@@ -4,12 +4,48 @@ import { omitCollapsedLedgerNarration } from "./aggregate-omit-ledger-narration.
 const THINKING_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-thinking-placeholder.v1",
 );
-const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v2");
+const LEGACY_NARRATION_WRAP_KEY = Symbol.for(
+  "pi-quiet-tools.aggregate-keep-narration.v2",
+);
+const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v3");
+const PRECEDING_TOOLS_LEDGER_STATE_KEY = Symbol.for(
+  "pi-quiet-tools.aggregate-keep-narration.preceding-tools-ledger.v1",
+);
 
 const OSC_SEQUENCE_PATTERN = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 const ANSI_SEQUENCE_PATTERN = /\x1b\[[0-9;]*[a-zA-Z]/g;
 const DEFAULT_HIDDEN_THINKING_LABEL = "Thinking...";
 
+type PrecedingToolsLedgerResolver = (message: unknown) => boolean;
+
+interface PrecedingToolsLedgerState {
+  resolver: PrecedingToolsLedgerResolver;
+}
+
+function precedingToolsLedgerState(): PrecedingToolsLedgerState {
+  const host = globalThis as Record<PropertyKey, unknown>;
+  const candidate = host[PRECEDING_TOOLS_LEDGER_STATE_KEY];
+  if (
+    candidate &&
+    typeof candidate === "object" &&
+    typeof (candidate as Partial<PrecedingToolsLedgerState>).resolver === "function"
+  ) {
+    return candidate as PrecedingToolsLedgerState;
+  }
+  const state: PrecedingToolsLedgerState = { resolver: () => false };
+  host[PRECEDING_TOOLS_LEDGER_STATE_KEY] = state;
+  return state;
+}
+
+export function setPrecedingToolsLedgerResolver(
+  resolver: PrecedingToolsLedgerResolver,
+): void {
+  precedingToolsLedgerState().resolver = resolver;
+}
+
+function hasPrecedingToolsLedger(message: unknown): boolean {
+  return precedingToolsLedgerState().resolver(message);
+}
 interface ThinkingPatchState {
   originalRender?: (this: unknown, width: number) => string[];
   patchedRender?: (this: unknown, width: number) => string[];
@@ -27,6 +63,7 @@ interface AssistantRenderContext {
 }
 
 type WrappedRender = ((this: unknown, width: number) => string[]) & {
+  [LEGACY_NARRATION_WRAP_KEY]?: true;
   [NARRATION_WRAP_KEY]?: true;
 };
 
@@ -157,24 +194,53 @@ function resolveHiddenThinkingLabel(component: AssistantRenderContext): string {
   return normalized || DEFAULT_HIDDEN_THINKING_LABEL;
 }
 
+interface RecoveredNarrationLines {
+  lines: string[];
+  hadLeadingGap: boolean;
+}
+
 function stripThinkingPlaceholderLines(
   lines: readonly string[],
   label: string,
-): string[] {
+): RecoveredNarrationLines {
   const kept = lines.filter((line) => visibleText(line) !== label);
+  const hadLeadingGap = visibleText(kept[0] ?? "") === "";
   while (kept.length > 0 && visibleText(kept[0]!) === "") {
     kept.shift();
   }
   while (kept.length > 0 && visibleText(kept[kept.length - 1]!) === "") {
     kept.pop();
   }
-  return kept;
+  return { lines: kept, hadLeadingGap };
+}
+
+/**
+ * 已绘制的聚合内容与恢复的 Markdown 连接时只保留一行间隔：
+ * ledger 已有尾随空行则复用；两侧都没有时补一行作为 ledger 的尾随间隔。
+ */
+export function appendRecoveredNarration(
+  painted: readonly string[],
+  narration: readonly string[],
+): string[] {
+  if (painted.length === 0 || narration.length === 0) {
+    return [...painted, ...narration];
+  }
+  const paintedEndsWithGap = visibleText(painted[painted.length - 1] ?? "") === "";
+  const narrationStartsWithGap = visibleText(narration[0] ?? "") === "";
+  if (paintedEndsWithGap && narrationStartsWithGap) {
+    return [...painted, ...narration.slice(1)];
+  }
+  if (!paintedEndsWithGap && !narrationStartsWithGap) {
+    return [...painted, "", ...narration];
+  }
+  return [...painted, ...narration];
 }
 
 export function recoverSwallowedNarration(
   component: AssistantRenderContext,
   originalRender: (this: unknown, width: number) => string[],
   width: number,
+  precededByToolsLedger = hasPrecedingToolsLedger(component.lastMessage),
 ): string[] {
   if (!Number.isFinite(width) || width <= 0) {
     return [];
@@ -203,16 +269,18 @@ export function recoverSwallowedNarration(
     lines = originalRender.call(component, width);
   }
 
-  const trimmed = stripThinkingPlaceholderLines(
+  const recovered = stripThinkingPlaceholderLines(
     lines,
     resolveHiddenThinkingLabel(component),
   );
-  if (trimmed.length === 0) {
+  if (recovered.lines.length === 0) {
     return [];
   }
-  // The aggregate ledger owns the preceding separation. Do not add another blank
-  // row here, or resumed narration is pushed two lines away from its tool activity.
-  return trimmed;
+  // `AssistantMessageComponent` 原本提供一行 Spacer(1)，聚合占位补丁会
+  // 将其剥离；只有正文位于 Tools ledger 之前时才需要恢复。
+  return recovered.hadLeadingGap && !precededByToolsLedger
+    ? ["", ...recovered.lines]
+    : recovered.lines;
 }
 
 function wrapAssistantRender(): void {
@@ -228,6 +296,7 @@ function wrapAssistantRender(): void {
   if (liveRender[NARRATION_WRAP_KEY]) {
     return;
   }
+  const wrapsLegacyNarration = liveRender[LEGACY_NARRATION_WRAP_KEY] === true;
 
   const wrappedRender = function wrappedKeepNarrationRender(
     this: unknown,
@@ -236,7 +305,7 @@ function wrapAssistantRender(): void {
     const rendered = omitCollapsedLedgerNarration(liveRender.call(this, width));
     const painted = removeExpandedNarrationFrame(rendered);
     const removedExpandedNarration = painted.length !== rendered.length;
-    if (!removedExpandedNarration && painted.length > 0) {
+    if (!removedExpandedNarration && painted.length > 0 && !wrapsLegacyNarration) {
       return painted;
     }
     try {
@@ -245,8 +314,11 @@ function wrapAssistantRender(): void {
         originalRender,
         width,
       );
+      if (wrapsLegacyNarration && narration.length > 0) {
+        return narration;
+      }
       if (removedExpandedNarration && painted.length > 0 && narration.length > 0) {
-        return [...painted, "", ...narration];
+        return appendRecoveredNarration(painted, narration);
       }
       return narration.length > 0 ? narration : painted;
     } catch {

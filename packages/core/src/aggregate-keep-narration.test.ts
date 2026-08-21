@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  appendRecoveredNarration,
   recoverSwallowedNarration,
   removeExpandedNarrationFrame,
 } from "./aggregate-keep-narration.ts";
 
-test("recovered narration follows an aggregate ledger without an extra blank row", () => {
+test("recovered narration preserves Pi's leading spacer", () => {
   const lines = recoverSwallowedNarration(
     {
       lastMessage: {
@@ -17,7 +18,43 @@ test("recovered narration follows an aggregate ledger without an extra blank row
     80,
   );
 
+  assert.deepEqual(lines, ["", "继续核对渲染边界"]);
+});
+
+test("recovered narration does not duplicate a preceding Tools ledger gap", () => {
+  const lines = recoverSwallowedNarration(
+    {
+      lastMessage: {
+        stopReason: "toolUse",
+        content: [{ type: "text", text: "继续核对渲染边界" }],
+      },
+    },
+    () => ["", "继续核对渲染边界", ""],
+    80,
+    true,
+  );
+
   assert.deepEqual(lines, ["继续核对渲染边界"]);
+});
+
+test("Tools ledger and recovered narration share exactly one blank row", () => {
+  const lines = appendRecoveredNarration(
+    ["", "✓ Tools (2 calls · 1 turn) · read ×1 · bash ×1", ""],
+    ["", "继续核对渲染边界"],
+  );
+
+  assert.deepEqual(lines, [
+    "",
+    "✓ Tools (2 calls · 1 turn) · read ×1 · bash ×1",
+    "",
+    "继续核对渲染边界",
+  ]);
+});
+
+test("expanded ledger supplies a separator when no rendered spacer exists", () => {
+  const lines = appendRecoveredNarration(["ledger"], ["narration"]);
+
+  assert.deepEqual(lines, ["ledger", "", "narration"]);
 });
 
 test("does not recover GPT-style thinking tags as interim narration", () => {
@@ -61,7 +98,7 @@ test("keeps narration beside GPT-style thinking tags and removes an unclosed tag
     80,
   );
 
-  assert.deepEqual(lines, ["实施前的正常说明"]);
+  assert.deepEqual(lines, ["", "实施前的正常说明"]);
   assert.equal(renderedMessage, originalMessage);
 });
 
@@ -86,7 +123,7 @@ test("strips a session sequence after a thinking-only text block", () => {
     80,
   );
 
-  assert.deepEqual(lines, ["正常说明"]);
+  assert.deepEqual(lines, ["", "正常说明"]);
   assert.equal(renderedMessage, originalMessage);
 });
 

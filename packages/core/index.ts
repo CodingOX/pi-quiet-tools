@@ -1,6 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import "./src/config-seed.js";
-import { installAggregateKeepNarrationPatch } from "./src/aggregate-keep-narration.js";
+import {
+  installAggregateKeepNarrationPatch,
+  setPrecedingToolsLedgerResolver,
+} from "./src/aggregate-keep-narration.js";
 import { installQuietSubagentNotificationRenderer } from "./src/quiet-subagent-notifications.js";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
 import {
@@ -37,6 +40,9 @@ export default function piToolsGlueExtension(pi: ExtensionAPI): void {
     toolDisplayIntentExtension(pi);
   }
 
+  setPrecedingToolsLedgerResolver(
+    (message) => toolDisplayIntentExtension.hasPrecedingAggregateToolsLedger?.(message) === true,
+  );
   if (!hashlineAlreadyActive(pi)) {
     hashlineExtension(pi);
   }
