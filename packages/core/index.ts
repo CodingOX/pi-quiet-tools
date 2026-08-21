@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import "./src/config-seed.js";
 import { installAggregateKeepNarrationPatch } from "./src/aggregate-keep-narration.js";
+import { installQuietSubagentNotificationRenderer } from "./src/quiet-subagent-notifications.js";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
 import {
   applyMinimalUiToHashlineTools,
@@ -30,6 +31,7 @@ function installAggregateUiPatches(pi: ExtensionAPI): void {
 
 export default function piToolsGlueExtension(pi: ExtensionAPI): void {
   installRegisterToolHook(pi);
+  installQuietSubagentNotificationRenderer(pi);
 
   if (!displayIntentAlreadyActive()) {
     toolDisplayIntentExtension(pi);

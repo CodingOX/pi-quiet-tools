@@ -34,6 +34,7 @@ Default UI policy:
 - **Summary mode** for grep / bash / write / etc.
 - **Silent** `read` / `replace` / `undo_last_replace` rows (counts only in the ledger)
 - **Native renderers** remain enabled for `Agent` and image results
+- **Subagent completions** stay as one compact status line without a transcript path when `pi-quiet-tools` loads before `@tintinweb/pi-subagents`
 
 With `per-turn`, consecutive tool-only assistant messages stay in the same ledger. Visible assistant Markdown or a mid-turn steer ends that phase; the next tool call starts a new ledger. Streaming updates of the same assistant message stay on the same ledger. `Ctrl+O` reveals the grouped one-line tool timeline, while silent tools still do not dump file contents or diffs.
 
@@ -111,6 +112,7 @@ Tweak display later with Pi's `/tool-display-intent` command (layout, result mod
 2. Hook `pi.registerTool` so hashline tools get silent renderers.
 3. Load display-intent, then hashline (skip either if already loaded).
 4. Patch aggregate rendering so hashline tool rows stay hidden, and interim assistant Markdown stays visible.
+5. When loaded before `@tintinweb/pi-subagents`, replace its completion renderer with compact status-only notifications.
 
 Load order and duplicate detection matter — see [AGENTS.md](./AGENTS.md) if you hack on this repo.
 
