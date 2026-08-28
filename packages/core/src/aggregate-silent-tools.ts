@@ -8,7 +8,7 @@ import {
 const AGGREGATE_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-tool-execution.v1",
 );
-const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v4");
+const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v5");
 const SILENT_INNER_KEY = Symbol.for("pi-tools.aggregate-silent-inner.v2");
 
 export { SILENT_AGGREGATE_TOOLS };
@@ -42,9 +42,12 @@ function unwrapSilentInner(
 }
 
 export function installAggregateSilentToolsPatch(): void {
-  const prototype = ToolExecutionComponent.prototype as PatchableToolExecutionPrototype;
+  const prototype =
+    ToolExecutionComponent.prototype as PatchableToolExecutionPrototype;
   const aggregateState = prototype[AGGREGATE_PATCH_KEY];
-  const currentRender = aggregateState?.patchedRender as PatchedRender | undefined;
+  const currentRender = aggregateState?.patchedRender as
+    | PatchedRender
+    | undefined;
   if (!currentRender) {
     return;
   }
@@ -60,7 +63,8 @@ export function installAggregateSilentToolsPatch(): void {
     width: number,
   ): string[] {
     const context = this as { toolName?: unknown; expanded?: unknown };
-    const toolName = typeof context.toolName === "string" ? context.toolName : "";
+    const toolName =
+      typeof context.toolName === "string" ? context.toolName : "";
     const lines = innerRender.call(this, width);
     return omitCollapsedLedgerNarration(
       resolveSilentAggregateLines(toolName, lines, {

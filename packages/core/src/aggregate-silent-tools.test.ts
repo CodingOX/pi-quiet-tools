@@ -6,7 +6,7 @@ import { installAggregateSilentToolsPatch } from "./aggregate-silent-tools.ts";
 const AGGREGATE_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-tool-execution.v1",
 );
-const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v4");
+const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v5");
 const SILENT_INNER_KEY = Symbol.for("pi-tools.aggregate-silent-inner.v2");
 
 type RenderFn = ((this: unknown, width: number) => string[]) & {
@@ -47,7 +47,10 @@ test("drops collapsed › narration from a non-silent Tools ledger host", () => 
 
   try {
     installAggregateSilentToolsPatch();
-    const lines = prototype.render.call({ toolName: "todowrite", expanded: false }, 120);
+    const lines = prototype.render.call(
+      { toolName: "todowrite", expanded: false },
+      120,
+    );
     assert.deepEqual(lines, [
       "✓ Tools (3 calls · 3 turns) · todowrite ×1 · replace ×1 · read ×1",
     ]);
@@ -80,7 +83,10 @@ test("reattaches the Tools ledger when live render was restored to the empty has
 
   try {
     installAggregateSilentToolsPatch();
-    const lines = prototype.render.call({ toolName: "read", expanded: false }, 120);
+    const lines = prototype.render.call(
+      { toolName: "read", expanded: false },
+      120,
+    );
     assert.match(lines.join("\n"), /Tools \(2 calls · 1 turn\) · read ×2/);
   } finally {
     prototype.render = originalRender;

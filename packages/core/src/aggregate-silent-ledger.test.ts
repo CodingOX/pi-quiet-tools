@@ -13,7 +13,9 @@ test("keeps the Tools ledger when the leader is a silent read", () => {
 });
 
 test("keeps an ANSI-colored Tools ledger", () => {
-  const lines = ["\x1b[32m✓\x1b[0m \x1b[1mTools\x1b[0m (3 calls · 1 turn) · read ×3"];
+  const lines = [
+    "\x1b[32m✓\x1b[0m \x1b[1mTools\x1b[0m (3 calls · 1 turn) · read ×3",
+  ];
   assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
 });
 
@@ -29,7 +31,10 @@ test("strips ANSI-colored silent retained rows from a Tools ledger", () => {
 });
 
 test("drops a silent per-call row", () => {
-  assert.deepEqual(resolveSilentAggregateLines("read", ["✓ read README.md"]), []);
+  assert.deepEqual(
+    resolveSilentAggregateLines("read", ["✓ read README.md"]),
+    [],
+  );
 });
 
 test("keeps expanded silent one-line rows from Ctrl+O", () => {
@@ -85,7 +90,80 @@ test("leaves non-silent tool output untouched", () => {
 });
 
 test("recognizes a Tools ledger through OSC and ANSI sequences", () => {
-  const lines = ["\x1b]0;quiet\x07\x1b[2m✓ Tools (1 call · 1 turn) · read ×1\x1b[0m"];
+  const lines = [
+    "\x1b]0;quiet\x07\x1b[2m✓ Tools (1 call · 1 turn) · read ×1\x1b[0m",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
+});
+
+test("keeps a live silent row when the leader is a silent read", () => {
+  const lines = ["◐ Tools (2 calls · 1 turn) · read ×2", "  ◐ Read(src/a.ts)"];
+
+  assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
+});
+
+test("still strips completed silent rows while keeping non-silent live rows", () => {
+  const lines = [
+    "◐ Tools (3 calls · 1 turn) · read ×2 · bash ×1",
+    "  ✓ Read(src/a.ts)",
+    "  ◐ Bash(pnpm test)",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("bash", lines), [
+    "◐ Tools (3 calls · 1 turn) · read ×2 · bash ×1",
+    "  ◐ Bash(pnpm test)",
+  ]);
+});
+
+test("caps silent live rows at one and keeps only the first", () => {
+  const lines = [
+    "◐ Tools (3 calls · 1 turn) · read ×3",
+    "  ◐ Read(a.ts)",
+    "  ◐ Read(b.ts)",
+    "  ◐ Read(c.ts)",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("read", lines), [
+    "◐ Tools (3 calls · 1 turn) · read ×3",
+    "  ◐ Read(a.ts)",
+  ]);
+});
+
+test("keeps one silent live row beside a parallel bash live row", () => {
+  const lines = [
+    "◐ Tools (5 calls · 1 turn) · bash ×1 · replace ×3 · read ×1",
+    "  ✓ replace",
+    "  ◐ Read(src/a.ts)",
+    "  ◐ Bash(pnpm test)",
+  ];
+
+  assert.deepEqual(resolveSilentAggregateLines("bash", lines), [
+    "◐ Tools (5 calls · 1 turn) · bash ×1 · replace ×3 · read ×1",
+    "  ◐ Read(src/a.ts)",
+    "  ◐ Bash(pnpm test)",
+  ]);
+});
+
+test("keeps expanded live silent framed rows from Ctrl+O", () => {
+  const lines = [
+    "",
+    "◐ Tools (2 calls · 1 turn) · read ×2",
+    "  │ ◐ Read(src/a.ts)",
+    "  └ ◐ Read(src/b.ts)",
+  ];
+
+  assert.deepEqual(
+    resolveSilentAggregateLines("read", lines, { expanded: true }),
+    lines,
+  );
+});
+
+test("keeps an ANSI-colored live silent Read row", () => {
+  const lines = [
+    "\x1b[33m◐\x1b[0m Tools (2 calls · 1 turn) · read ×2",
+    "  \x1b[33m◐\x1b[0m \x1b[36mRead(src/a.ts)\x1b[0m",
+  ];
 
   assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
 });

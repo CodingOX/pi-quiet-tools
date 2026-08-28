@@ -17,7 +17,9 @@ export function shouldSilenceAggregateTool(toolName: string): boolean {
 }
 
 export function looksLikeAggregateLedger(lines: readonly string[]): boolean {
-  return lines.some((line) => LEDGER_HEADER_PATTERN.test(visibleToolLine(line)));
+  return lines.some((line) =>
+    LEDGER_HEADER_PATTERN.test(visibleToolLine(line)),
+  );
 }
 
 function isSilentAggregateDisplayRow(line: string): boolean {
@@ -43,9 +45,10 @@ export interface SilentAggregateOptions {
  * group leader. If that leader is `read` / `replace` / `undo_last_replace`,
  * swallowing the whole render also swallows `✓ Tools (...)`.
  *
- * While a phase is still open, display-intent also pins up to three retained
- * done rows *inside* the leader's ledger. Those rows must be stripped even
- * when bash / write hosts the header.
+ * Completed/failed silent rows (`✓` / `!`) stay hidden even when bash / write
+ * hosts the header. Collapsed ledgers keep at most one silent live `◐` row
+ * (current pending/running silent tool); later silent live rows are stripped.
+ * Non-silent live rows (e.g. `◐ Bash`) remain visible.
  *
  * Ctrl+O leaves the collapsed ledger and paints one framed summary per call.
  * Those expanded rows must stay visible.
@@ -59,7 +62,25 @@ export function resolveSilentAggregateLines(
     return [...lines];
   }
   if (looksLikeAggregateLedger(lines)) {
-    return lines.filter((line) => !isSilentAggregateDisplayRow(line));
+    // 折叠账本最多保留一条静默 live `◐` 行（当前进行中的静默工具）
+    let keptSilentLive = false;
+    return lines.filter((line) => {
+      if (!isSilentAggregateDisplayRow(line)) {
+        return true;
+      }
+      const visible = visibleToolLine(line).trimStart();
+      if (visible.startsWith("✓") || visible.startsWith("!")) {
+        return false;
+      }
+      if (visible.startsWith("◐")) {
+        if (keptSilentLive) {
+          return false;
+        }
+        keptSilentLive = true;
+        return true;
+      }
+      return false;
+    });
   }
   if (!shouldSilenceAggregateTool(toolName)) {
     return [...lines];
