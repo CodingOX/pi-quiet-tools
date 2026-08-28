@@ -22,36 +22,14 @@ export function looksLikeAggregateLedger(lines: readonly string[]): boolean {
   );
 }
 
-function isSilentAggregateDisplayRow(line: string): boolean {
-  const visible = visibleToolLine(line);
-  if (/^[│└]/.test(visible)) {
-    return false;
-  }
-  const match = /^[✓◐!]\s+(\S+)/.exec(visible);
-  const token = match?.[1];
-  if (!token || token === "Tools") {
-    return false;
-  }
-  const label = token.replace(/\(.*$/, "");
-  return label === "Read" || shouldSilenceAggregateTool(label);
-}
-
 export interface SilentAggregateOptions {
   expanded?: boolean;
 }
 
 /**
- * Silent tools hide per-call rows, but the aggregate ledger is painted by the
- * group leader. If that leader is `read` / `replace` / `undo_last_replace`,
- * swallowing the whole render also swallows `✓ Tools (...)`.
- *
- * Completed/failed silent rows (`✓` / `!`) stay hidden even when bash / write
- * hosts the header. Collapsed ledgers keep at most one silent live `◐` row
- * (current pending/running silent tool); later silent live rows are stripped.
- * Non-silent live rows (e.g. `◐ Bash`) remain visible.
- *
- * Ctrl+O leaves the collapsed ledger and paints one framed summary per call.
- * Those expanded rows must stay visible.
+ * 静默工具的逐条 hashline 渲染要吞掉，否则会和 Tools 账本叠在一起。
+ * 折叠账本本身由上游画 Open rows（最多 3 行），glue 原样透传，不再剥静默完成行、
+ * 也不把静默 live 裁成 1 条。Ctrl+O 展开后的逐条概要必须可见。
  */
 export function resolveSilentAggregateLines(
   toolName: string,
@@ -61,26 +39,9 @@ export function resolveSilentAggregateLines(
   if (options.expanded === true) {
     return [...lines];
   }
+  // 折叠账本：3 行窗口归上游，quiet 让路
   if (looksLikeAggregateLedger(lines)) {
-    // 折叠账本最多保留一条静默 live `◐` 行（当前进行中的静默工具）
-    let keptSilentLive = false;
-    return lines.filter((line) => {
-      if (!isSilentAggregateDisplayRow(line)) {
-        return true;
-      }
-      const visible = visibleToolLine(line).trimStart();
-      if (visible.startsWith("✓") || visible.startsWith("!")) {
-        return false;
-      }
-      if (visible.startsWith("◐")) {
-        if (keptSilentLive) {
-          return false;
-        }
-        keptSilentLive = true;
-        return true;
-      }
-      return false;
-    });
+    return [...lines];
   }
   if (!shouldSilenceAggregateTool(toolName)) {
     return [...lines];
