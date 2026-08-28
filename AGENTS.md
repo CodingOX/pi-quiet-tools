@@ -25,7 +25,7 @@ pi-quiet-tools/
 packages/core/index.ts
   ├─ config-seed.ts              First-run default config + passthrough migration
   ├─ register-tool-hook.ts       Wrap registerTool; silent renderCall/renderResult
-  ├─ aggregate-silent-tools.ts   Hide read/replace/undo rows; keep Tools ledger host
+  ├─ aggregate-silent-tools.ts   Swallow non-ledger silent renders; collapsed ledger passes through
   ├─ aggregate-keep-narration.ts Keep interim assistant Markdown
   ├─ upstream-loader.ts          Detect already-loaded upstream (avoid double register)
   └─ imports + invokes upstream default exports in order:
@@ -92,7 +92,7 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 ## Testing checklist (manual)
 
 1. Only `pi-quiet-tools` in Pi `packages` — no standalone hashline or display-intent.
-2. User prompt triggers multiple `read` calls in one assistant turn → collapsed view still shows `✓ Tools (...)` with `read ×N`; no per-file Read rows.
+2. User prompt triggers multiple `read` calls in one assistant turn → collapsed open ledger shows `Tools (...)` plus up to 3 Open rows (pending/running take slots first; leftover slots are recent done, including silent tools); no hashline per-file bodies. After settle, header + receipt only.
 3. A later assistant turn with more tools gets its **own** Tools ledger after that turn's Markdown, not one block pinned at the bottom.
 4. Mid-turn assistant prose (text before `toolUse`) stays visible as Markdown; thinking stays hidden.
 5. `replace` still works for the agent (hashline behavior unchanged).

@@ -16,12 +16,12 @@ _Avoid_: last turn, live block, in-progress group
 A Tools ledger whose phase has finished. Quiet UI shows the header and receipt only.
 _Avoid_: historical tools, completed group
 
-**Live current tool**:
-The at-most-one pending or running silent-tool row shown on an open ledger. Non-silent live rows stay visible.
-_Avoid_: recent tools, live tail, retained rows, active window
+**Open rows**:
+The at-most-three tool rows under an open Tools ledger. Pending and running calls take slots first; remaining slots show the most recently completed calls, including silent tools.
+_Avoid_: live current tool, live tail, recent tools, active window, retained rows
 
 **Silent tool**:
-A tool whose completed per-call rows stay hidden in the collapsed quiet ledger. Currently `read`, `replace`, and `undo_last_replace`.
+`read`, `replace`, and `undo_last_replace`. They share Open rows with other aggregated tools instead of keeping a private live pin.
 _Avoid_: hidden tool, quiet tool
 
 **Open elapsed**:
