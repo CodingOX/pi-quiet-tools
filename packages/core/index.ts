@@ -5,6 +5,7 @@ import {
   setPrecedingToolsLedgerResolver,
 } from "./src/aggregate-keep-narration.js";
 import { installQuietSubagentNotificationRenderer } from "./src/quiet-subagent-notifications.js";
+import { installHostWatchdog } from "./src/host-watchdog.js";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
 import {
   applyMinimalUiToHashlineTools,
@@ -32,6 +33,7 @@ function installAggregateUiPatches(pi: ExtensionAPI): void {
 export default function piToolsGlueExtension(pi: ExtensionAPI): void {
   installRegisterToolHook(pi);
   installQuietSubagentNotificationRenderer(pi);
+  installHostWatchdog(pi);
 
   if (!displayIntentAlreadyActive(pi)) {
     toolDisplayIntentExtension(pi);
