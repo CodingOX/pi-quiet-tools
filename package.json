@@ -24,6 +24,7 @@
     "test": "npm run test -w @pi-quiet-tools/core && npx --yes tsx --test tests/*.test.ts",
     "update:upstream": "bash scripts/update-upstream.sh",
     "update:upstream:latest": "bash scripts/update-upstream.sh --latest",
-    "update:upstream:check": "bash scripts/update-upstream.sh --check"
+    "update:upstream:check": "bash scripts/update-upstream.sh --check",
+    "cache:clear": "bash scripts/clear-jiti-cache.sh"
   }
 }

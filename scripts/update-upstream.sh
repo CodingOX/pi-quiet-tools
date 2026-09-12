@@ -108,6 +108,10 @@ if [[ "$MODE" == "latest" ]]; then
 else
   npm update -w @pi-quiet-tools/core pi-hashline-edit-pro
 fi
+# 换版本后清一次 jiti 编译缓存，作为升级后的保险动作（成本极低，缓存会自动重建）。
+# 若 Pi 是在旧版本时启动的，请重启它 —— 运行中进程可能仍持有升级前编译的产物，
+# 那会去读已被上游改名/删除的文件而抛 ENOENT。详见 clear-jiti-cache.sh 顶部说明。
+bash "$ROOT/scripts/clear-jiti-cache.sh"
 
 echo
 echo "Upstream status after:"
