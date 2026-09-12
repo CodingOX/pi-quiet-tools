@@ -135,6 +135,7 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 | `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. This is Pi's own diagnostic and it does not block startup, so the session still runs. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
 | Per-call `Read(path)` rows appear next to a ledger | A hashline tool name is in `tools.passthrough`. Remove it; startup migration normally does this for you. |
 | Subagent completion notices are still verbose | `@tintinweb/pi-subagents` is loading before this extension. Pi picks the first registered renderer for a custom message type, so this one has to come first. |
+| `Failed to load extension: ENOENT … prompts/undo-last-replace.md` | Pi was started before the dependency under it changed on disk, so it is still running code compiled from the previous version — which asks for a prompt file the new version renamed. **Restart Pi** (not just `/reload`). `npm run cache:clear` also clears the jiti cache as a belt-and-braces step; the file itself is gone because the new version provides `undo-last-change.md` instead. |
 | Nothing looks different | Run `/reload`. If it still looks unchanged, confirm the config file exists and that only one package is installed. |
 
 ## Install
