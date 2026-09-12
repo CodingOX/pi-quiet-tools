@@ -35,6 +35,7 @@
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) —— 开放账本为什么要走时钟，以及这部分渲染归谁
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) —— glue 为什么不再自己数那个三行窗口
 - [`CONTEXT.md`](./CONTEXT.md) —— 术语表：Tools 账本、开放账本、已结算账本、Open rows、静默工具、open elapsed、账本 receipt
+- [`docs/upstream-sync.md`](./docs/upstream-sync.md) —— 两个上游依赖的评估结论，以及同步会打断什么
 
 ## 终端行为
 
@@ -224,6 +225,7 @@ seed 的 bundle 配置刻意不同于 display-intent 独立安装时的默认值
 
 ## 上游更新
 
+先读 [`docs/upstream-sync.md`](./docs/upstream-sync.md)。两个依赖都是刻意锁定的，而同步可能以终端不会报错的方式静默失效。
 display-intent 维护在 `vendor/pi-extensions` submodule 里：
 
 ```bash

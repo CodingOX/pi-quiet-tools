@@ -35,6 +35,7 @@ Read the decisions and the shared vocabulary:
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) — why open ledgers tick and where that rendering lives
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) — why glue stopped re-counting the three-row window
 - [`CONTEXT.md`](./CONTEXT.md) — glossary: Tools ledger, open ledger, settled ledger, Open rows, silent tool, open elapsed, ledger receipt
+- [`docs/upstream-sync.md`](./docs/upstream-sync.md) — evaluated state of both upstream dependencies, and what a sync would break
 
 ## Terminal behavior
 
@@ -223,6 +224,7 @@ Each display-intent runtime releases its prototype ownership, tool decorations, 
 
 ## Upstream updates
 
+Read [`docs/upstream-sync.md`](./docs/upstream-sync.md) first. Both dependencies are pinned deliberately, and a sync can fail silently in ways the terminal will not report.
 Held in the `vendor/pi-extensions` submodule:
 
 ```bash
