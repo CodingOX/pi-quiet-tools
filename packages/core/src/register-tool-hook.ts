@@ -1,4 +1,7 @@
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
 
@@ -47,7 +50,9 @@ export function applyMinimalUiToHashlineTools(pi: ExtensionAPI): void {
       // SAFETY: Pi 的 getAllTools() 声明返回宽泛的工具条目类型，而这里只需要
       // name/renderCall/renderResult 三个字段来覆写 renderer。运行时形状由 Pi 自己
       // 注册工具时保证，无法用类型系统表达，因此在此处收窄。
-      const minimized = minimizeHashlineToolUi(tool as unknown as ToolDefinition);
+      const minimized = minimizeHashlineToolUi(
+        tool as unknown as ToolDefinition,
+      );
       Object.assign(tool, {
         renderCall: minimized.renderCall,
         renderResult: minimized.renderResult,
@@ -67,7 +72,9 @@ export function installRegisterToolHook(pi: ExtensionAPI): void {
 
   const originalRegisterTool = pi.registerTool.bind(pi);
   const wrappedRegisterTool: ExtensionAPI["registerTool"] = (tool) => {
-    originalRegisterTool(minimizeHashlineToolUi(tool as ToolDefinition) as typeof tool);
+    originalRegisterTool(
+      minimizeHashlineToolUi(tool as ToolDefinition) as typeof tool,
+    );
   };
 
   pi.registerTool = wrappedRegisterTool;

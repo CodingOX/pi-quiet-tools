@@ -153,7 +153,7 @@ test("silences the 4.x hashline tool names", () => {
 		assert.deepEqual(
 			resolveSilentAggregateLines(toolName, [`✓ ${toolName} something`]),
 			[],
-			`${toolName} should be silenced outside a ledger`
+			`${toolName} should be silenced outside a ledger`,
 		);
 	}
 });
@@ -162,15 +162,12 @@ test("still silences the retired undo_last_replace name", () => {
 	// 旧配置和被锁定的旧版本仍可能注册这个名字；识别不到就会漏出逐条行。
 	assert.deepEqual(
 		resolveSilentAggregateLines("undo_last_replace", ["✓ undo_last_replace"]),
-		[]
+		[],
 	);
 });
 
 test("keeps an insert-led Tools ledger intact", () => {
-	const lines = [
-		"✓ Tools (3 calls · 1 turn) · insert ×3",
-		"  ✓ insert",
-	];
+	const lines = ["✓ Tools (3 calls · 1 turn) · insert ×3", "  ✓ insert"];
 
 	assert.deepEqual(resolveSilentAggregateLines("insert", lines), lines);
 });

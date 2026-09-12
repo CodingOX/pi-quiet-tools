@@ -78,15 +78,18 @@ print_status() {
 
 MODE="range"
 case "${1:-}" in
-  "" ) MODE="range" ;;
-  --latest ) MODE="latest" ;;
-  --check ) MODE="check" ;;
-  -h|--help ) usage; exit 0 ;;
-  * )
-    echo "Unknown argument: $1" >&2
-    usage
-    exit 1
-    ;;
+"") MODE="range" ;;
+--latest) MODE="latest" ;;
+--check) MODE="check" ;;
+-h | --help)
+  usage
+  exit 0
+  ;;
+*)
+  echo "Unknown argument: $1" >&2
+  usage
+  exit 1
+  ;;
 esac
 
 echo "Upstream status before:"

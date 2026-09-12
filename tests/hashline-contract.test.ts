@@ -60,7 +60,11 @@ test("every hashline prompt reference resolves on disk", () => {
   }
 
   assert.ok(total > 0, "expected to find prompt references to check");
-  assert.deepEqual(missing, [], `unresolvable prompt references: ${missing.join(", ")}`);
+  assert.deepEqual(
+    missing,
+    [],
+    `unresolvable prompt references: ${missing.join(", ")}`,
+  );
 });
 
 test("matching set covers current names plus retired", () => {

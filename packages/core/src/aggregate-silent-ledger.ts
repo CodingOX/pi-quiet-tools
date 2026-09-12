@@ -10,21 +10,19 @@ export const SILENT_AGGREGATE_TOOLS = HASHLINE_TOOL_NAME_SET;
 const LEDGER_HEADER_PATTERN = /Tools\s*\(\s*\d+\s+calls?/;
 
 export function visibleToolLine(line: string): string {
-  return visibleTerminalText(line);
+ return visibleTerminalText(line);
 }
 
 export function shouldSilenceAggregateTool(toolName: string): boolean {
-  return SILENT_AGGREGATE_TOOLS.has(toolName);
+ return SILENT_AGGREGATE_TOOLS.has(toolName);
 }
 
 export function looksLikeAggregateLedger(lines: readonly string[]): boolean {
-  return lines.some((line) =>
-    LEDGER_HEADER_PATTERN.test(visibleToolLine(line)),
-  );
+ return lines.some((line) => LEDGER_HEADER_PATTERN.test(visibleToolLine(line)));
 }
 
 export interface SilentAggregateOptions {
-  expanded?: boolean;
+ expanded?: boolean;
 }
 
 /**
@@ -33,19 +31,19 @@ export interface SilentAggregateOptions {
  * 也不把静默 live 裁成 1 条。Ctrl+O 展开后的逐条概要必须可见。
  */
 export function resolveSilentAggregateLines(
-  toolName: string,
-  lines: readonly string[],
-  options: SilentAggregateOptions = {},
+ toolName: string,
+ lines: readonly string[],
+ options: SilentAggregateOptions = {},
 ): string[] {
-  if (options.expanded === true) {
-    return [...lines];
-  }
-  // 折叠账本：3 行窗口归上游，quiet 让路
-  if (looksLikeAggregateLedger(lines)) {
-    return [...lines];
-  }
-  if (!shouldSilenceAggregateTool(toolName)) {
-    return [...lines];
-  }
-  return [];
+ if (options.expanded === true) {
+  return [...lines];
+ }
+ // 折叠账本：3 行窗口归上游，quiet 让路
+ if (looksLikeAggregateLedger(lines)) {
+  return [...lines];
+ }
+ if (!shouldSilenceAggregateTool(toolName)) {
+  return [...lines];
+ }
+ return [];
 }

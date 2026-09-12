@@ -38,7 +38,9 @@ export default function piToolsGlueExtension(pi: ExtensionAPI): void {
   }
 
   setPrecedingToolsLedgerResolver(
-    (message) => toolDisplayIntentExtension.hasPrecedingAggregateToolsLedger?.(message) === true,
+    (message) =>
+      toolDisplayIntentExtension.hasPrecedingAggregateToolsLedger?.(message) ===
+      true,
   );
   // 无条件加载 hashline：加载期无法判断它是否已注册，详见 upstream-loader.ts 顶部说明。
   hashlineExtension(pi);

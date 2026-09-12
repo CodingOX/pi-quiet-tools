@@ -14,11 +14,11 @@
 
 /** 当前 pi-hashline-edit-pro 注册的工具。 */
 export const HASHLINE_TOOLS = [
-  "read",
-  "replace",
-  "insert",
-  "undo_last_change",
-  "anchor_grep",
+ "read",
+ "replace",
+ "insert",
+ "undo_last_change",
+ "anchor_grep",
 ] as const;
 
 /**
@@ -36,6 +36,6 @@ export const LEGACY_HASHLINE_TOOLS = ["undo_last_replace"] as const;
 
 /** 运行时/配置匹配用的合并集合：当前名字 + 已被淘汰的名字。 */
 export const HASHLINE_TOOL_NAME_SET: ReadonlySet<string> = new Set<string>([
-  ...HASHLINE_TOOLS,
-  ...LEGACY_HASHLINE_TOOLS,
+ ...HASHLINE_TOOLS,
+ ...LEGACY_HASHLINE_TOOLS,
 ]);

@@ -5,7 +5,11 @@ import { getToolDisplayConfigPath } from "./agent-dir.js";
 import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
 
 const PACKAGE_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
-const DEFAULT_CONFIG_PATH = join(PACKAGE_ROOT, "config", "default-display-config.json");
+const DEFAULT_CONFIG_PATH = join(
+  PACKAGE_ROOT,
+  "config",
+  "default-display-config.json",
+);
 
 /**
  * 不进入安静 Tools 账本、保留原 renderer 的工具。
@@ -27,7 +31,9 @@ export const QUIET_UI_PASSTHROUGH_KEEP = ["Agent"] as const;
  */
 const QUIET_UI_PASSTHROUGH_REMOVE = HASHLINE_TOOL_NAME_SET;
 
-export function migrateQuietToolsPassthrough(raw: Record<string, unknown>): boolean {
+export function migrateQuietToolsPassthrough(
+  raw: Record<string, unknown>,
+): boolean {
   if (raw.tools === undefined) {
     raw.tools = { passthrough: [...QUIET_UI_PASSTHROUGH_KEEP] };
     return true;
@@ -56,7 +62,9 @@ export function migrateQuietToolsPassthrough(raw: Record<string, unknown>): bool
   const present = new Set(
     next.filter((name): name is string => typeof name === "string"),
   );
-  const missing = QUIET_UI_PASSTHROUGH_KEEP.filter((name) => !present.has(name));
+  const missing = QUIET_UI_PASSTHROUGH_KEEP.filter(
+    (name) => !present.has(name),
+  );
   if (missing.length > 0) {
     next.unshift(...missing);
   }
@@ -80,7 +88,10 @@ function migrateLegacyPassthrough(): void {
 
   let raw: Record<string, unknown>;
   try {
-    raw = JSON.parse(readFileSync(configPath, "utf8")) as Record<string, unknown>;
+    raw = JSON.parse(readFileSync(configPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return;
   }
