@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
 
 const DISPLAY_INTENT_API_KEY = Symbol.for("pi-tool-display-intent.api.v1");
 const DISPLAY_INTENT_RUNTIME_OWNERS_KEY = Symbol.for("pi-tool-display-intent.runtime-owners.v1");
-const HASHLINE_TOOL_NAMES = ["read", "replace", "undo_last_replace"] as const;
 
 interface ToolWithSource {
   name?: string;
@@ -13,7 +13,7 @@ interface ToolWithSource {
 }
 
 function isHashlineOwnedTool(tool: ToolWithSource): boolean {
-  if (!HASHLINE_TOOL_NAMES.includes(tool.name as (typeof HASHLINE_TOOL_NAMES)[number])) {
+  if (typeof tool.name !== "string" || !HASHLINE_TOOL_NAME_SET.has(tool.name)) {
     return false;
   }
 

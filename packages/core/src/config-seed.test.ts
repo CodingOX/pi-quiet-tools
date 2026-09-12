@@ -34,6 +34,10 @@ test("keeps Agent passthrough and strips hashline names", async () => {
             "read",
             "replace",
             "undo_last_replace",
+            // 4.x 工具名：insert 与 anchor_grep 是新增的，undo_last_change 是改名后的。
+            "undo_last_change",
+            "insert",
+            "anchor_grep",
             "custom_ui",
             42,
           ],

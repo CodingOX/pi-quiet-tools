@@ -1,0 +1,41 @@
+/**
+ * Hashline 工具名的唯一事实来源。
+ *
+ * 为什么单独成模块：这些名字原本在 4 个文件里各写了一遍
+ * （静默集合、passthrough 迁移、重复加载检测、极简 UI 名单），
+ * 上游一改工具名就要四处找、四处改，还容易漏。集中到这里之后，
+ * 上游改名只需动这一个文件。
+ *
+ * 名字随上游演进：
+ * - 2.6.x 及更早：read / replace / undo_last_replace
+ * - 2.7.0 起：undo_last_replace 改名为 undo_last_change，并新增 insert、anchor_grep
+ * - 3.0.0 起：锚点从 3 字符变成 4 字符（只影响 read 输出形态，glue 不解析锚点宽度）
+ */
+
+/** 当前 pi-hashline-edit-pro 注册的工具。 */
+export const HASHLINE_TOOLS = [
+  "read",
+  "replace",
+  "insert",
+  "undo_last_change",
+  "anchor_grep",
+] as const;
+
+/**
+ * 已被上游改名淘汰、但旧配置里可能仍然存在的名字。
+ *
+ * 与当前名字的区别很关键：
+ * - 运行时匹配（静默集合、极简 UI、重复加载检测）理论上只需要当前名字；
+ * - 配置清理必须同时处理旧名字，否则用户升级前写进 `tools.passthrough`
+ *   的 `undo_last_replace` 会永远留在配置里。
+ *
+ * 运行时集合也把旧名字一并纳入：成本为零，却能在用户同时也装了旧版
+ * hashline（或 Pi 仍在用旧注册）时继续生效，不会突然漏出一堆逐条行。
+ */
+export const LEGACY_HASHLINE_TOOLS = ["undo_last_replace"] as const;
+
+/** 运行时/配置匹配用的合并集合：当前名字 + 已被淘汰的名字。 */
+export const HASHLINE_TOOL_NAME_SET: ReadonlySet<string> = new Set<string>([
+  ...HASHLINE_TOOLS,
+  ...LEGACY_HASHLINE_TOOLS,
+]);

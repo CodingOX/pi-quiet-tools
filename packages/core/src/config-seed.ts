@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getToolDisplayConfigPath } from "./agent-dir.js";
+import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
 
 const PACKAGE_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const DEFAULT_CONFIG_PATH = join(PACKAGE_ROOT, "config", "default-display-config.json");
@@ -20,12 +21,11 @@ export const QUIET_UI_PASSTHROUGH_KEEP = ["Agent"] as const;
 /**
  * Hashline 工具必须留在账本里只显示计数。旧配置若把它们放进 passthrough，
  * 终端会出现逐次 Read / replace 行。
+ *
+ * 必须包含已被淘汰的旧名字（如 `undo_last_replace`）：用户升级前可能把它写进了
+ * 配置，只有把旧名字一起清掉，这份配置才不会一直残留一条失效条目。
  */
-const QUIET_UI_PASSTHROUGH_REMOVE = new Set([
-  "read",
-  "replace",
-  "undo_last_replace",
-]);
+const QUIET_UI_PASSTHROUGH_REMOVE = HASHLINE_TOOL_NAME_SET;
 
 export function migrateQuietToolsPassthrough(raw: Record<string, unknown>): boolean {
   if (raw.tools === undefined) {

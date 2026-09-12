@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
 
-const MINIMAL_UI_TOOLS = new Set(["read", "replace", "undo_last_replace"]);
+/** Hashline 工具的 renderer 被替换为空，计数只留在 Tools 账本里。 */
+const MINIMAL_UI_TOOLS = HASHLINE_TOOL_NAME_SET;
 
 const REGISTER_TOOL_HOOK_KEY = Symbol.for("pi-tools.registerToolHook.v1");
 
@@ -42,6 +44,9 @@ export function applyMinimalUiToHashlineTools(pi: ExtensionAPI): void {
         continue;
       }
 
+      // SAFETY: Pi 的 getAllTools() 声明返回宽泛的工具条目类型，而这里只需要
+      // name/renderCall/renderResult 三个字段来覆写 renderer。运行时形状由 Pi 自己
+      // 注册工具时保证，无法用类型系统表达，因此在此处收窄。
       const minimized = minimizeHashlineToolUi(tool as unknown as ToolDefinition);
       Object.assign(tool, {
         renderCall: minimized.renderCall,
