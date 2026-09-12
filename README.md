@@ -1,6 +1,10 @@
 # pi-quiet-tools
 
-A single Pi extension package for a quieter terminal. It keeps the model-facing hashline tools and the display-intent renderer intact, while reducing terminal noise to compact tool ledgers, useful interim Markdown, and the final answer.
+A single Pi extension package that makes the terminal quieter without taking anything away from the model.
+
+`pi-quiet-tools` bundles two upstream layers behind one install: hash-anchored file editing (`pi-hashline-edit-pro`) and intent-aware tool rendering (`@zhcsyncer/pi-tool-display-intent`). On top of them it adds a thin glue layer that decides *what the terminal shows* — compact tool ledgers, live open rows, useful interim Markdown, and the final answer.
+
+[简体中文](./README.zh-CN.md)
 
 ## What it combines
 
@@ -10,7 +14,27 @@ A single Pi extension package for a quieter terminal. It keeps the model-facing 
 | [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | Tool renderers, result compaction, diffs, custom/MCP tool decoration, and Tools ledgers |
 | `packages/core` | Load order, duplicate guards, quiet renderers, narration handling, and compact subagent notifications |
 
-`vendor/pi-extensions` is a git submodule containing the display-intent fork. Display-intent feature work belongs in that submodule; the parent package stays thin glue. Pi should load this repository as one extension only.
+`vendor/pi-extensions` is a git submodule pinned to a fork of the display-intent repository. Display-intent feature work belongs in that submodule; the parent package stays thin glue.
+
+Install this repository as **one** extension. Do not also install `pi-hashline-edit-pro` or `@zhcsyncer/pi-tool-display-intent` — Pi would register the same tools twice.
+
+## The quiet contract
+
+**Rendering changes; execution and model context do not.** The model still receives full hashline anchors, `replace` semantics, complete tool results, and the whole session. Quiet rendering only changes what the terminal draws.
+
+Three claims define what "quiet" means here. Each one has an accepted decision record:
+
+**1. Signal over transcript.** Tool activity collapses into a *Tools ledger* — a header, at most three Open rows, and a receipt. File bodies, diffs, and hashline output never leak into the transcript view. `Ctrl+O` is always available when you do want the full call list.
+
+**2. An open ledger must look alive.** A running phase shows a live mark and a ticking elapsed time, and keeps up to three *Open rows*: pending and running calls take slots first, then the most recently completed calls. Silent tools (`read`, `replace`, `undo_last_replace`) share those rows instead of holding a private live pin, so a long `bash` is never hidden behind a `read`.
+
+**3. Narration stays.** Mid-turn assistant Markdown is real content, so it remains visible and ends the current tool phase. Thinking placeholders and structured control noise are removed from terminal narration.
+
+Read the decisions and the shared vocabulary:
+
+- [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) — why open ledgers tick and where that rendering lives
+- [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) — why glue stopped re-counting the three-row window
+- [`CONTEXT.md`](./CONTEXT.md) — glossary: Tools ledger, open ledger, settled ledger, Open rows, silent tool, open elapsed, ledger receipt
 
 ## Terminal behavior
 
@@ -19,7 +43,13 @@ With the default `pi-quiet-tools` seed configuration:
 ```text
 I'll inspect the current glue layer first.
 
-✓ Tools (9 calls · 1 turn) · read ×9
+◐ Tools (4 calls · 2 turns) · 7s · read ×3 · bash ×1
+  ◐ Read(packages/core/index.ts)
+  ✓ Read(packages/core/src/config-seed.ts)
+  ✓ Read(packages/core/src/aggregate-silent-tools.ts)
+
+✓ Tools (9 calls · 3 turns) · read ×9
+  took 12s · tok ↑18.2k ↓1.4k · at 14:32
 
 The read path is already silent. Next I'll tighten the aggregate wrap.
 
@@ -28,8 +58,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 [Assistant answer]
 ```
 
-The model still receives full hashline anchors, replace semantics, tool results, and session data. Quiet rendering changes the terminal view, not tool execution or model context.
-
+The headline is the ledger header (`✓` settled, `◐` still running, `!` something failed, followed by call/turn counts and a per-tool breakdown). A running ledger adds its elapsed time right after the counts; an open ledger may show up to three Open rows; a settled one replaces them with a receipt (`took … · tok ↑… ↓… · at …`). A later assistant turn with more tools gets its own ledger, positioned after that turn's Markdown.
 Default bundle policy:
 
 - `per-turn` Tools ledger: consecutive tool-only assistant messages stay in one ledger; visible assistant Markdown or a mid-turn steer starts the next tool phase.
@@ -41,28 +70,98 @@ Default bundle policy:
 
 `Ctrl+O` exposes the grouped original tool timeline. It does not make silent tools dump file contents or diffs.
 
+## Usage
+
+There is nothing to switch on: the extension is active as soon as Pi loads it. This section covers checking that it worked, reading what it draws, and changing its behavior.
+
+### Verify the install in 60 seconds
+
+Run `/reload` (or restart Pi), then confirm three things:
+
+1. **Pi sees one package.**
+
+   ```bash
+   pi list
+   ```
+
+   If `pi-hashline-edit-pro` or `@zhcsyncer/pi-tool-display-intent` also appear as standalone entries, remove them first.
+
+2. **Tools are hash-anchored.** Ask the model to read a file. Each line should come back as `anchor│content`:
+
+   ```text
+   9n0│# pi-quiet-tools
+   ```
+
+   No anchors means the hashline layer did not load.
+
+3. **Tools are aggregated.** Ask for something that triggers several tool calls in one turn. You should get **one** Tools ledger with a `×N` breakdown — not one transcript block per call, and never a `Read(path)` body dump.
+
+You can also inspect the effective display settings any time with `/tool-display-intent`.
+
+### Reading a ledger
+
+| You see | It means |
+| --- | --- |
+| `✓ Tools (…)` | The tool phase is settled. Header and receipt only. |
+| `◐ Tools (…) · 7s` | Still running. The elapsed time ticks so a long single tool never looks frozen. |
+| `! Tools (…) · N failed` | Something in the phase failed; the expanded timeline shows which call. |
+| `↳ 1 steer` | One or more steering messages landed inside this tool phase. |
+| Rows starting with `◐` / `✓` | Open rows. Running and pending calls first, then the most recently completed calls, silent tools included. |
+| `took … · tok ↑… ↓… · at …` | The receipt under a settled ledger. |
+
+Two things deliberately do **not** appear in a ledger: the `›` in-progress narration pin, because that same prose is already rendered as ordinary Markdown above; and the per-call `Read(path)` rows for silent tools.
+
+`Ctrl+O` expands the grouped original timeline — one row per call with its target and status — and collapses it again. Use it when the ledger is too coarse; you do not need it in normal use.
+
+### Changing behavior
+
+`/tool-display-intent` opens the display settings panel: layout, result mode, diff rendering, tool ownership, and which tools stay in the ledger. Settings persist to:
+
+```text
+~/.pi/agent/extension-data/pi-tool-display-intent/config.json
+```
+
+To have the extension render while keeping `read` / `replace` outside the ledger, remove those names from `tools.passthrough`. To add another high-signal tool that must stay outside the ledger, add its name there.
+
+Changing tool ownership, layout, intent schema, or call-frame decoration requires `/reload`. Delete the config file and reload Pi to recreate the bundle defaults.
+
+If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directory instead of `~/.pi/agent`.
+
+### Troubleshooting
+
+| Symptom | Cause and fix |
+| --- | --- |
+| `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
+| Per-call `Read(path)` rows appear next to a ledger | `read` / `replace` / `undo_last_replace` are in `tools.passthrough`. Remove them; startup migration normally does this for you. |
+| Subagent completion notices are still verbose | `@tintinweb/pi-subagents` is loading before this extension. Pi picks the first registered renderer for a custom message type, so this one has to come first. |
+| Nothing looks different | Run `/reload`. If it still looks unchanged, confirm the config file exists and that only one package is installed. |
+
 ## Install
 
-Install only this package. Do not install `pi-hashline-edit-pro` or `@zhcsyncer/pi-tool-display-intent` separately, otherwise Pi may register the same tools twice.
+### From GitHub
 
 ```bash
-# Local checkout
-git clone --recurse-submodules git@github.com:CodingOX/pi-quiet-tools.git
+pi install git:github.com/CodingOX/pi-quiet-tools
+```
+
+The `https://github.com/CodingOX/pi-quiet-tools` form works the same way. The repository runs `scripts/init-submodule.sh` as its `preinstall` step, so the `vendor/pi-extensions` submodule is cloned and checked out at the pinned commit as part of the install — you do not need `--recurse-submodules`.
+
+`github:CodingOX/pi-quiet-tools` is **not** a Pi package source; Pi only recognizes the `git:` prefix or a protocol URL.
+
+> [!WARNING]
+> Do not run `pi install npm:pi-quiet-tools`. This repository is not published to npm, and an **unrelated** package already owns that name. Pi would install a different tool that has nothing to do with this one.
+
+### From a local checkout
+
+```bash
+git clone git@github.com:CodingOX/pi-quiet-tools.git
 cd pi-quiet-tools
 npm run submodule:init
 npm install
 pi install /absolute/path/to/pi-quiet-tools
 ```
 
-```bash
-# GitHub
-pi install git:github.com/CodingOX/pi-quiet-tools
-pi install https://github.com/CodingOX/pi-quiet-tools
-```
-
-`github:CodingOX/pi-quiet-tools` is not a Pi package source. This repository is not published to npm yet, so `pi install npm:pi-quiet-tools` does not work.
-
-After installation, restart Pi or run `/reload`.
+After installing, restart Pi or run `/reload`.
 
 ### Remove previous standalone installs
 
@@ -73,16 +172,30 @@ pi remove npm:pi-hashline-edit-pro
 pi remove npm:@zhcsyncer/pi-tool-display-intent
 ```
 
+### Updating
+
+`pi update` refetches this repository and re-runs its install, which re-initializes the submodule at the commit pinned by the new revision. The submodule's own branch is not tracked — you get exactly the SHA committed here.
+
+For a local checkout, pull and reinstall:
+
+```bash
+git pull
+npm install
+```
+
 ## Configuration
 
 On first load, the glue writes this file when it does not already exist:
 
-`~/.pi/agent/extension-data/pi-tool-display-intent/config.json`
+```text
+~/.pi/agent/extension-data/pi-tool-display-intent/config.json
+```
 
 The seeded bundle configuration is intentionally different from the standalone display-intent defaults:
 
 ```json
 {
+  "$schema": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
   "version": 2,
   "intent": { "enabled": false },
   "toolCalls": { "layout": "per-turn", "style": "compact" },
@@ -94,8 +207,6 @@ The seeded bundle configuration is intentionally different from the standalone d
 ```
 
 Existing configuration is not overwritten. Startup migration removes `read`, `replace`, and `undo_last_replace` from legacy `tools.passthrough` entries and restores `Agent`, so hashline calls can remain aggregated and silent.
-
-Use `/tool-display-intent` to inspect or change layout, result mode, ownership, and other display settings. Changes to tool ownership, layout, intent schema, or call-frame decoration require `/reload`. Delete the config file and reload Pi to recreate the bundle defaults.
 
 ## Load order and safeguards
 
@@ -112,7 +223,7 @@ Each display-intent runtime releases its prototype ownership, tool decorations, 
 
 ## Upstream updates
 
-Display-intent is maintained in the `vendor/pi-extensions` submodule:
+Held in the `vendor/pi-extensions` submodule:
 
 ```bash
 npm run submodule:init
@@ -125,7 +236,7 @@ Commit the resulting submodule SHA in this repository, and push the fork branch 
 git -C vendor/pi-extensions push origin HEAD
 ```
 
-Hashline remains an npm dependency:
+Hashline stays an npm dependency:
 
 ```bash
 npm run update:upstream:check
@@ -136,14 +247,16 @@ After an upstream update:
 
 ```bash
 npm run typecheck
+npm test
 ```
 
 Then reload Pi.
 
 ## Requirements
 
-- Node.js >= 20
-- Pi coding agent >= 0.80 (`@earendil-works/pi-coding-agent`)
+- Pi coding agent >= 0.80 (`@earendil-works/pi-coding-agent`); developed and verified against 0.85.x
+- Node.js >= 22.19, as required by both Pi and `pi-hashline-edit-pro`
+- An interactive terminal session. The quiet ledger is a terminal renderer.
 
 ## License
 
