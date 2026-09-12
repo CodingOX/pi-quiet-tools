@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import hashlineExtension from "pi-hashline-edit-pro";
 import toolDisplayIntentExtension from "@zhcsyncer/pi-tool-display-intent";
@@ -21,6 +24,43 @@ test("hashline registers exactly the tool names glue knows about", () => {
   };
   hashlineExtension(pi as never);
   assert.deepEqual([...registered].sort(), [...HASHLINE_TOOLS].sort());
+});
+
+/**
+ * 每个 prompt 文件的引用都必须能解析。
+ *
+ * 上游在 2.7.0 把 undo-last-replace.md 改名为 undo-last-change.md（并删掉了旧文件）。
+ * 如果该版本在升级后仍被执行（例如 jiti 编译缓存按「源文件路径的 md5」命名，
+ * 而同名缓存可能在原地 npm install 后被旧内容复用），源码会去读已被删除的旧
+ * prompt 文件，Pi 加载扩展时直接抛：
+ *
+ *   Failed to load extension: ENOENT: no such file or directory, open
+ *   '.../pi-hashline-edit-pro/prompts/undo-last-replace.md'
+ *
+ * 这条测试把「所有 prompt 引用都能读到」变成硬约束：无论缓存状态如何，
+ * 只要源码与 prompts 目录不一致就会变红，而不是等到 reload 时才炸。
+ */
+test("every hashline prompt reference resolves on disk", () => {
+  const packageRoot = dirname(
+    createRequire(import.meta.url).resolve("pi-hashline-edit-pro/package.json"),
+  );
+  const srcDir = join(packageRoot, "src");
+  const missing: string[] = [];
+  let total = 0;
+
+  for (const entry of readdirSync(srcDir)) {
+    if (!entry.endsWith(".ts")) continue;
+    const text = readFileSync(join(srcDir, entry), "utf8");
+    for (const match of text.matchAll(/load(?:P|Guide)\("([^"]+)"\)/g)) {
+      total += 1;
+      if (!existsSync(resolve(srcDir, match[1]))) {
+        missing.push(`${entry} -> ${match[1]}`);
+      }
+    }
+  }
+
+  assert.ok(total > 0, "expected to find prompt references to check");
+  assert.deepEqual(missing, [], `unresolvable prompt references: ${missing.join(", ")}`);
 });
 
 test("matching set covers current names plus retired", () => {
