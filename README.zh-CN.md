@@ -136,7 +136,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 | 启动时报 `Tool "read" conflicts with …` | 加载了两套 hashline。这是 Pi 自己给出的诊断，**不会阻断启动**，会话仍可继续。把独立的 `pi-hashline-edit-pro` 条目从 `packages` 里移除。 |
 | 账本旁边出现逐次 `Read(path)` 行 | 有 hashline 工具名出现在 `tools.passthrough` 里。把它去掉；启动迁移正常情况下会自动处理。 |
 | 子代理完成通知还是很啰嗦 | `@tintinweb/pi-subagents` 先于本扩展加载。Pi 对同一 custom 消息类型只取最先注册的 renderer，所以本扩展必须在前面。 |
-| `Failed to load extension: ENOENT … prompts/undo-last-replace.md` | Pi 是在依赖被换掉之前启动的，进程里仍跑着旧版本编译出的代码，而它要找的 prompt 文件已被新版本改名。**重启 Pi**（不是 `/reload`）。`npm run cache:clear` 可以顺带清掉 jiti 缓存作为保险；那个文件本身已经不存在了 —— 新版本提供的是 `undo-last-change.md`。 |
+| `Failed to load extension: ENOENT … prompts/undo-last-replace.md`，或 `Cannot find module … /file-type/index.js` | Pi 启动**早于**依赖在磁盘上被替换，而 jiti 的模块解析缓存是**进程级**的，`/reload` 清不掉它。报错里那个文件只有**旧版本**才有（hashline 2.6.1 的 `undo-last-replace.md`；file-type 21.3.4 的根入口 `index.js`）。**重启 Pi** —— 新进程会正确解析。`npm run cache:clear` 能顺带清 jiti 磁盘缓存，但不能替代重启。 |
 | 看起来完全没变化 | 执行 `/reload`。若仍无变化，确认配置文件存在，且只安装了一个包。 |
 
 ## 安装
