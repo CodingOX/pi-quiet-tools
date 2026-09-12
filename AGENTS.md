@@ -6,7 +6,7 @@ Guidance for humans and coding agents working in this repository.
 
 **pi-quiet-tools** is a workspace that ships one Pi extension:
 
-1. **`packages/core`** (`@pi-quiet-tools/core`) — glue: load order, silent UI, interim Markdown.
+1. **`packages/core`** (`@pi-quiet-tools/core`) — glue: load order, silent UI, interim Markdown, UI-host watchdog.
 2. **`vendor/pi-extensions`** — git submodule of [CodingOX/pi-extensions](https://github.com/CodingOX/pi-extensions), tracking [zhcsyncer/pi-extensions](https://github.com/zhcsyncer/pi-extensions). Display-intent source lives here.
 3. **pi-hashline-edit-pro** — still an npm dependency (execution layer).
 
@@ -25,15 +25,19 @@ pi-quiet-tools/
 packages/core/index.ts
   ├─ config-seed.ts              First-run default config + passthrough migration
   ├─ register-tool-hook.ts       Wrap registerTool; silent renderCall/renderResult
+  ├─ quiet-subagent-notifications.ts  Compress subagent completion notifications
+  ├─ host-watchdog.ts            UI-host bash/wall-clock runaway gate
   ├─ aggregate-silent-tools.ts   Swallow non-ledger silent renders; collapsed ledger passes through
   ├─ aggregate-keep-narration.ts Keep interim assistant Markdown
   ├─ upstream-loader.ts          display-intent duplicate guard (hashline guard removed — see below)
-  └─ imports + invokes upstream default exports in order:
+  └─ imports + invokes in order:
        1. installRegisterToolHook
-       2. toolDisplayIntentExtension(pi)
-       3. hashlineExtension(pi)   (unconditional)
-       4. applyMinimalUiToHashlineTools
-       5. installAggregateUiPatches
+       2. installQuietSubagentNotificationRenderer
+       3. installHostWatchdog
+       4. toolDisplayIntentExtension(pi)
+       5. hashlineExtension(pi)   (unconditional)
+       6. applyMinimalUiToHashlineTools
+       7. installAggregateUiPatches
 ```
 
 ### Critical invariants
@@ -42,7 +46,7 @@ packages/core/index.ts
 
 2. **No double hashline** — Glue calls `hashlineExtension` unconditionally, because at extension-load time `pi.getAllTools()` throws (`notInitialized`) so the status cannot be probed. The protections are external: Pi dedupes extensions by path, a genuine double install surfaces as a non-fatal `Tool "read" conflicts with ...` diagnostic, and README/AGENTS forbid installing hashline standalone. Do **not** reintroduce a `getAllTools()` guard — the reasoning lives in `packages/core/src/upstream-loader.ts`.
 
-3. **Load order is load-bearing** — display-intent and hashline both register tools from the *same* extension factory, so Pi sees no conflict and the later registration wins the name. display-intent re-registers the builtins (`read`, `grep`, `find`, `ls`, `write`, `bash`) with builtin descriptions; hashline then registers its own `read` that returns `anchor│content`. Swapping steps 2 and 3 makes the model silently receive un-anchored file content while `read` still looks normal — no error anywhere. `tests/hashline-contract.test.ts` locks the order.
+3. **Load order is load-bearing** — display-intent and hashline both register tools from the *same* extension factory, so Pi sees no conflict and the later registration wins the name. display-intent re-registers the builtins (`read`, `grep`, `find`, `ls`, `write`, `bash`) with builtin descriptions; hashline then registers its own `read` that returns `anchor│content`. Swapping steps 4 and 5 makes the model silently receive un-anchored file content while `read` still looks normal — no error anywhere. `tests/hashline-contract.test.ts` locks the order.
 
 4. **Passthrough vs aggregate** — Putting `read` in display-intent `tools.passthrough` causes **individual Read rows** in the UI. Default config passthrough is only `Agent` and `edit`. Glue migrates away legacy passthrough of hashline tool names.
 
@@ -100,6 +104,7 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 5. `replace` and `insert` still work for the agent (hashline behavior unchanged). `anchor_grep` is the active search tool; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
 7. Existing display-intent config: passthrough migration strips every name in `HASHLINE_TOOL_NAME_SET` (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, so subagent dispatch stays outside the quiet Tools ledger. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
+8. UI host: 50 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
 
 ## Where hashline tool names live
 

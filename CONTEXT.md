@@ -1,6 +1,6 @@
 # Quiet Tools Display
 
-The language for collapsing tool activity in the Pi terminal without making an open phase look stuck.
+The language for collapsing tool activity in the Pi terminal without making an open phase look stuck, and for stopping a UI-host runaway without touching child sessions.
 
 ## Language
 
@@ -31,3 +31,27 @@ _Avoid_: receipt, took line
 **Ledger receipt**:
 The muted duration, token, and completion-time line under a settled ledger.
 _Avoid_: stats line, footer
+
+**UI host**:
+The session a human is watching. `ctx.hasUI` is true.
+_Avoid_: main agent, parent session
+
+**Child session**:
+An in-process subagent session. `ctx.hasUI` is false.
+_Avoid_: isolated agent
+
+**Bash budget**:
+The cap on bash calls in one UI-host user request that trips the watchdog nudge.
+_Avoid_: tool budget
+
+**Watchdog nudge**:
+The first intervention after the bash budget or a long wall-clock cap counted from the user request. This clock is not open elapsed, and it freezes while the UI host waits on `Agent` or `get_subagent_result`.
+_Avoid_: warning, reminder, progress tool
+
+**Grace period**:
+The maximum remaining work after a watchdog nudge. Whichever limit hits first ends it.
+_Avoid_: timeout
+
+**Hard stop**:
+The state after the grace period. Later tool calls are refused so the UI host must reply with current work and next steps. An already-running tool is not aborted.
+_Avoid_: kill, abort, cancel
