@@ -14,14 +14,14 @@
     ]
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "preinstall": "bash scripts/init-submodule.sh",
     "submodule:init": "bash scripts/init-submodule.sh && bash scripts/bootstrap-submodule-remotes.sh",
     "sync:display-intent": "bash scripts/sync-display-intent.sh",
     "typecheck": "npm run typecheck -w @pi-quiet-tools/core",
-    "test": "npm run test -w @pi-quiet-tools/core",
+    "test": "npm run test -w @pi-quiet-tools/core && npx --yes tsx --test tests/*.test.ts",
     "update:upstream": "bash scripts/update-upstream.sh",
     "update:upstream:latest": "bash scripts/update-upstream.sh --latest",
     "update:upstream:check": "bash scripts/update-upstream.sh --check"

@@ -12,14 +12,14 @@
   },
   "dependencies": {
     "@zhcsyncer/pi-tool-display-intent": "file:../../vendor/pi-extensions/packages/pi-tool-display-intent",
-    "pi-hashline-edit-pro": "2.6.1"
+    "pi-hashline-edit-pro": "4.2.5"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.80.0 <1",
-    "@earendil-works/pi-tui": ">=0.80.0 <1"
+    "@earendil-works/pi-coding-agent": ">=0.84.0 <1",
+    "@earendil-works/pi-tui": ">=0.84.0 <1"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19.0"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
