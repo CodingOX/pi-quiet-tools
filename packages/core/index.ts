@@ -10,10 +10,7 @@ import {
   applyMinimalUiToHashlineTools,
   installRegisterToolHook,
 } from "./src/register-tool-hook.js";
-import {
-  displayIntentAlreadyActive,
-  hashlineAlreadyActive,
-} from "./src/upstream-loader.js";
+import { displayIntentAlreadyActive } from "./src/upstream-loader.js";
 import toolDisplayIntentExtension from "@zhcsyncer/pi-tool-display-intent";
 import hashlineExtension from "pi-hashline-edit-pro";
 
@@ -43,9 +40,8 @@ export default function piToolsGlueExtension(pi: ExtensionAPI): void {
   setPrecedingToolsLedgerResolver(
     (message) => toolDisplayIntentExtension.hasPrecedingAggregateToolsLedger?.(message) === true,
   );
-  if (!hashlineAlreadyActive(pi)) {
-    hashlineExtension(pi);
-  }
+  // 无条件加载 hashline：加载期无法判断它是否已注册，详见 upstream-loader.ts 顶部说明。
+  hashlineExtension(pi);
 
   applyMinimalUiToHashlineTools(pi);
   installAggregateUiPatches(pi);

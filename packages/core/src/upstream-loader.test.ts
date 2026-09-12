@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { displayIntentAlreadyActive, hashlineAlreadyActive } from "./upstream-loader.js";
+import { displayIntentAlreadyActive } from "./upstream-loader.js";
 
 const API_KEY = Symbol.for("pi-tool-display-intent.api.v1");
 const OWNERS_KEY = Symbol.for("pi-tool-display-intent.runtime-owners.v1");
@@ -45,40 +45,14 @@ test("display-intent duplicate detection keeps compatibility with legacy API mar
 });
 
 /**
- * 重复加载守卫的回归保护。
+ * hashline 的「已加载」守卫测试已随守卫本身一起移除。
  *
- * 上游 2.7.0 换了工具名（undo_last_change / insert / anchor_grep）。如果这里只认老名字，
- * glue 会误判「hashline 还没加载」，于是再调一次 hashlineExtension，Pi 就会报
- * `Tool "read" conflicts with ...`。所以每个当前工具名都必须能被识别。
+ * 那个守卫读 `pi.getAllTools()`，但扩展加载期该调用必定 throw
+ * （Pi 的 `createExtensionRuntime()` 把 `getAllTools` 指向 `notInitialized`，
+ * 而工厂函数正是在加载期被调用），所以它恒为 false。
+ * 测它等于在测一个死分支，会给人一种「已经防住了」的错觉。
+ *
+ * 工具名清单的真实保护在仓库根的 `tests/hashline-contract.test.ts`：
+ * 它直接启动真实 hashline 包，断言其注册的工具名与 HASHLINE_TOOL_NAME_SET
+ * 完全一致 —— 上游改名会让它变红，而不是靠这里 mock 一个假的工具清单。
  */
-test("hashline duplicate detection recognizes every current tool name", () => {
-  const currentNames = [
-    "read",
-    "replace",
-    "insert",
-    "undo_last_change",
-    "anchor_grep",
-  ];
-
-  for (const name of currentNames) {
-    const pi = {
-      getAllTools: () => [
-        { name, sourceInfo: { source: "local", path: "/x/pi-hashline-edit-pro/index.ts" } },
-      ],
-    } as unknown as ExtensionAPI;
-
-    assert.equal(hashlineAlreadyActive(pi), true, `${name} should count as hashline owned`);
-  }
-});
-
-test("hashline duplicate detection ignores unrelated local tools", () => {
-  const pi = {
-    getAllTools: () => [
-      { name: "bash", sourceInfo: { source: "local", path: "/x/some-ext/index.ts" } },
-      // 名字对但不是本地扩展提供（例如内置 read），不应算作 hashline 已加载。
-      { name: "read", sourceInfo: { source: "builtin" } },
-    ],
-  } as unknown as ExtensionAPI;
-
-  assert.equal(hashlineAlreadyActive(pi), false);
-});
