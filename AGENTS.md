@@ -27,11 +27,11 @@ packages/core/index.ts
   ├─ register-tool-hook.ts       Wrap registerTool; silent renderCall/renderResult
   ├─ aggregate-silent-tools.ts   Swallow non-ledger silent renders; collapsed ledger passes through
   ├─ aggregate-keep-narration.ts Keep interim assistant Markdown
-  ├─ upstream-loader.ts          Detect already-loaded upstream (avoid double register)
+  ├─ upstream-loader.ts          display-intent duplicate guard (hashline guard removed — see below)
   └─ imports + invokes upstream default exports in order:
        1. installRegisterToolHook
        2. toolDisplayIntentExtension(pi)
-       3. hashlineExtension(pi)   (skipped if hashline already active)
+       3. hashlineExtension(pi)   (unconditional)
        4. applyMinimalUiToHashlineTools
        5. installAggregateUiPatches
 ```
@@ -40,20 +40,22 @@ packages/core/index.ts
 
 1. **Single extension entry** — Root `package.json` lists `./packages/core/index.ts` under `pi.extensions`. Do not add hashline or display-intent to the user's Pi `packages` list separately.
 
-2. **No double hashline** — If `read` is already owned by pi-hashline-edit-pro, glue must not call `hashlineExtension` again. Symptom: `Tool "read" conflicts with ... pi-hashline-edit-pro`.
+2. **No double hashline** — Glue calls `hashlineExtension` unconditionally, because at extension-load time `pi.getAllTools()` throws (`notInitialized`) so the status cannot be probed. The protections are external: Pi dedupes extensions by path, a genuine double install surfaces as a non-fatal `Tool "read" conflicts with ...` diagnostic, and README/AGENTS forbid installing hashline standalone. Do **not** reintroduce a `getAllTools()` guard — the reasoning lives in `packages/core/src/upstream-loader.ts`.
 
-3. **Passthrough vs aggregate** — Putting `read` in display-intent `tools.passthrough` causes **individual Read rows** in the UI. Default config passthrough is only `Agent` and `edit`. Glue migrates away legacy passthrough of hashline tool names.
+3. **Load order is load-bearing** — display-intent and hashline both register tools from the *same* extension factory, so Pi sees no conflict and the later registration wins the name. display-intent re-registers the builtins (`read`, `grep`, `find`, `ls`, `write`, `bash`) with builtin descriptions; hashline then registers its own `read` that returns `anchor│content`. Swapping steps 2 and 3 makes the model silently receive un-anchored file content while `read` still looks normal — no error anywhere. `tests/hashline-contract.test.ts` locks the order.
 
-4. **Config before display-intent import** — `config-seed.ts` runs as a side effect on import **before** `@zhcsyncer/pi-tool-display-intent` loads, because that package reads config at module init.
+4. **Passthrough vs aggregate** — Putting `read` in display-intent `tools.passthrough` causes **individual Read rows** in the UI. Default config passthrough is only `Agent` and `edit`. Glue migrates away legacy passthrough of hashline tool names.
 
-5. **Aggregate patch timing** — `installAggregateSilentToolsPatch` runs on load and on `session_start` / `before_agent_start`, after display-intent installs its aggregate prototype patch.
+5. **Config before display-intent import** — `config-seed.ts` runs as a side effect on import **before** `@zhcsyncer/pi-tool-display-intent` loads, because that package reads config at module init.
 
-6. **Submodule, not vendored files** — `vendor/pi-extensions` is a git submodule. Parent repo commits the SHA only. Display-intent code is pushed on the fork, not flattened into core.
+6. **Aggregate patch timing** — `installAggregateSilentToolsPatch` runs on load and on `session_start` / `before_agent_start`, after display-intent installs its aggregate prototype patch.
+
+7. **Submodule, not vendored files** — `vendor/pi-extensions` is a git submodule. Parent repo commits the SHA only. Display-intent code is pushed on the fork, not flattened into core.
 
 ## What to change vs what not to change
 
 | Do in `packages/core` | Do in `vendor/pi-extensions` | Do on npm |
-|---|---|---|
+| --- | --- | --- |
 | Load order, duplicate guards, silent UI patches | Hashline is not here | Hashline releases |
 | Default display-intent config / migration | display-intent features, new layouts | — |
 | Workspace scripts | Fork PRs back to zhcsyncer | — |

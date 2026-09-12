@@ -132,7 +132,7 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
+| `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. This is Pi's own diagnostic and it does not block startup, so the session still runs. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
 | Per-call `Read(path)` rows appear next to a ledger | A hashline tool name is in `tools.passthrough`. Remove it; startup migration normally does this for you. |
 | Subagent completion notices are still verbose | `@tintinweb/pi-subagents` is loading before this extension. Pi picks the first registered renderer for a custom message type, so this one has to come first. |
 | Nothing looks different | Run `/reload`. If it still looks unchanged, confirm the config file exists and that only one package is installed. |
@@ -216,7 +216,7 @@ Existing configuration is not overwritten. Startup migration strips every hashli
 1. Seed or migrate display-intent configuration before importing the upstream module.
 2. Install the `registerTool` hook and compact subagent notification renderer.
 3. Load display-intent once, unless it is already active in the current Pi runtime.
-4. Load hashline once, unless `read` is already owned by an active hashline extension.
+4. Load hashline unconditionally. At extension-load time `pi.getAllTools()` throws, so the glue cannot probe whether hashline is already registered — see Troubleshooting for what actually catches a double install.
 5. Apply minimal hashline renderers and the aggregate silent-tool/narration patches.
 6. Refresh aggregate patches at `session_start` and `before_agent_start`.
 

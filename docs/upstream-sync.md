@@ -61,7 +61,7 @@ Four modules now consume that set instead of repeating it:
 | --- | --- | --- |
 | `aggregate-silent-ledger.ts` | inline `Set` of 3 names | `HASHLINE_TOOL_NAME_SET` |
 | `config-seed.ts` | inline `Set` of 3 names | `HASHLINE_TOOL_NAME_SET` |
-| `upstream-loader.ts` | `HASHLINE_TOOL_NAMES` array + cast | membership test on the shared set |
+| `upstream-loader.ts` | `HASHLINE_TOOL_NAMES` array + `getAllTools()` guard | guard **deleted** (it was dead — see below) |
 | `register-tool-hook.ts` | inline `Set` of 3 names | `HASHLINE_TOOL_NAME_SET` |
 
 Keeping the retired name in the matching set is deliberate. It costs nothing, and it means an old config entry or a not-yet-upgraded hashline install still gets silenced instead of suddenly leaking per-call rows.
@@ -80,8 +80,27 @@ The 3→4 char anchor change stayed **narrower than it looked**: glue contains n
 New regression coverage, all verified to fail when the name list is wrong:
 
 - `aggregate-silent-ledger.test.ts` — the 4.x names are silenced; the retired name still is; an `insert`-led ledger survives.
-- `upstream-loader.test.ts` — duplicate-load detection recognises every current tool name (a miss there re-registers hashline and makes Pi report `Tool "read" conflicts with ...`), and still ignores unrelated local tools and the built-in `read`.
 - `config-seed.test.ts` — passthrough migration strips current, new, and retired names alike.
+
+### A dead guard found and removed
+
+Review during this migration found that `hashlineAlreadyActive` — the guard intended to stop a second `hashlineExtension` call — **returned `false` unconditionally at its only call site**. It was not a regression from the rename; it had probably never worked.
+
+The chain, verified in `pi-coding-agent` 0.85.1 `dist/core/extensions/loader.js`:
+
+1. `createExtensionRuntime()` sets `getAllTools: notInitialized` (line 154), and `notInitialized` throws *"Extension runtime not initialized. Action methods cannot be called during extension loading."*
+2. Extension factories are invoked during loading (`initializeExtension`), before `Runner.bindCore()` installs the real actions.
+3. So the call throws every time, and the `catch { return false }` swallowed it.
+
+The old test mocked `getAllTools` with a working implementation, so it asserted behaviour that production could never reach — it protected a dead branch.
+
+Two facts make removal safe rather than merely tidy:
+
+- Pi dedupes extensions by canonical path (`mergePaths`), so the same extension loaded from the same path only runs once.
+- A genuine double install is already caught by Pi: a tool-name collision produces a `Tool "read" conflicts with ...` diagnostic. Note this is pushed to `errors` but **does not block startup** — all extensions stay loaded and precedence follows load order.
+
+So glue now calls `hashlineExtension` unconditionally, and the reasoning is parked in a comment at the top of `packages/core/src/upstream-loader.ts` so nobody reintroduces the same dead guard. The duplicate-detection tests were removed with it, since asserting a dead branch produces confidence without protection.
+
 ## Why display-intent is deferred
 
 ### The fork and upstream have genuinely diverged
@@ -151,6 +170,7 @@ Click-to-expand rows, a read-only Result/Args inspector with Metadata, Ctrl+O gr
 Inference, not verified: that 0.10.0's UI features would still be reachable after reworking `per-turn` on the new base. Judging the size of that work needs a fresh look at `aggregate-activity.ts` in 0.10.0, not an estimate from this record.
 
 ## When revisiting this
+
 Hashline is migrated. Display-intent remains deferred, and it is the only open item here.
 
 For display-intent:

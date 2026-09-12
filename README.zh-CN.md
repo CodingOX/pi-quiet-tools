@@ -133,7 +133,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| 启动时报 `Tool "read" conflicts with …` | 加载了两套 hashline。把独立的 `pi-hashline-edit-pro` 条目从 `packages` 里移除。 |
+| 启动时报 `Tool "read" conflicts with …` | 加载了两套 hashline。这是 Pi 自己给出的诊断，**不会阻断启动**，会话仍可继续。把独立的 `pi-hashline-edit-pro` 条目从 `packages` 里移除。 |
 | 账本旁边出现逐次 `Read(path)` 行 | 有 hashline 工具名出现在 `tools.passthrough` 里。把它去掉；启动迁移正常情况下会自动处理。 |
 | 子代理完成通知还是很啰嗦 | `@tintinweb/pi-subagents` 先于本扩展加载。Pi 对同一 custom 消息类型只取最先注册的 renderer，所以本扩展必须在前面。 |
 | 看起来完全没变化 | 执行 `/reload`。若仍无变化，确认配置文件存在，且只安装了一个包。 |
@@ -217,7 +217,7 @@ seed 的 bundle 配置刻意不同于 display-intent 独立安装时的默认值
 1. 在导入上游模块之前 seed 或迁移 display-intent 配置。
 2. 安装 `registerTool` hook 与子代理通知紧凑 renderer。
 3. 加载 display-intent 一次，除非当前 Pi 运行时里它已经活跃。
-4. 加载 hashline 一次，除非 `read` 已由某个活跃的 hashline 扩展持有。
+4. 无条件加载 hashline。扩展加载期 `pi.getAllTools()` 会 throw，所以 glue 无法探测 hashline 是否已注册 —— 真正拦住双装的是别的东西，见「排障」。
 5. 给 hashline 工具套上极简 renderer，并安装聚合静默工具／旁白补丁。
 6. 在 `session_start` 与 `before_agent_start` 刷新聚合补丁。
 
