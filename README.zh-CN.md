@@ -10,7 +10,7 @@
 
 | 包 | 职责 |
 | --- | --- |
-| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | 给模型用的 Hash 锚点 `read`、`replace`、`undo_last_replace` |
+| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | 给模型用的 Hash 锚点 `read`、`replace`、`insert`、`undo_last_change`、`anchor_grep` |
 | [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | 工具 renderer、结果压缩、diff、custom/MCP 工具装饰，以及 Tools 账本 |
 | `packages/core` | 加载顺序、重复加载守卫、静默 renderer、旁白处理、子代理通知紧凑化 |
 
@@ -26,7 +26,7 @@
 
 **1. 要信号，不要转录。** 工具活动收进一个 *Tools 账本* —— 一个标题行、最多三行 Open rows，加一条 receipt。文件内容、diff、hashline 输出都不会漏进转录视图。真要看完整调用列表时，`Ctrl+O` 永远在。
 
-**2. 开放账本必须看起来还活着。** 正在运行的阶段会显示活跃标记和逐秒走动的 elapsed 时间，并保留最多三行 *Open rows*：pending 和 running 的调用优先占位，剩下的槽位给最近完成的调用。静默工具（`read`、`replace`、`undo_last_replace`）共享这些行，而不是独占一条 live pin，所以长时间的 `bash` 不会被一个 `read` 挡住。
+**2. 开放账本必须看起来还活着。** 正在运行的阶段会显示活跃标记和逐秒走动的 elapsed 时间，并保留最多三行 *Open rows*：pending 和 running 的调用优先占位，剩下的槽位给最近完成的调用。静默工具（`read`、`replace`、`insert`、`undo_last_change`、`anchor_grep`）共享这些行，而不是独占一条 live pin，所以长时间的 `bash` 不会被一个 `read` 挡住。
 
 **3. 旁白要留下。** 中途的 assistant Markdown 是真实内容，所以它保持可见，并结束当前工具阶段。thinking 占位符和结构化控制噪声会从终端旁白中移除。
 
@@ -65,7 +65,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 
 - `per-turn` Tools 账本：连续只有工具调用的 assistant 消息留在同一个账本里；出现可见的 assistant Markdown 或一次中途 steer，就开启下一个工具阶段。
 - 本 bundle 默认关闭 intent 字段。上游扩展仍可渲染确定性的工具元数据。
-- 结果模式为 `summary`；`read`、`replace`、`undo_last_replace` 保持静默，但计数仍留在账本里。
+- 结果模式为 `summary`；`read`、`replace`、`insert`、`undo_last_change`、`anchor_grep` 保持静默，但计数仍留在账本里。`anchor_grep` 是取代内置 `grep` 的锚点搜索：它的命中行自带锚点，可以直接编辑，不必再单独 `read` 一遍。
 - `Agent` 保留原生 renderer。`edit` 也由 seed 的 passthrough 配置留在安静账本之外。
 - 中途的 assistant Markdown 保持可见；thinking 占位符与结构化控制噪声从终端旁白中移除。
 - 当本扩展先于 `@tintinweb/pi-subagents` 加载时，子代理完成通知只占一行紧凑状态行；不显示 transcript 路径和结果预览元数据。
@@ -91,7 +91,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 2. **工具带 Hash 锚点。** 让模型读一个文件。每行应该长这样：`anchor│content`：
 
    ```text
-   9n0│# pi-quiet-tools
+   Dafo│# pi-quiet-tools
    ```
 
    没有锚点，说明 hashline 层没加载。
@@ -134,7 +134,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 | 现象 | 原因与处理 |
 | --- | --- |
 | 启动时报 `Tool "read" conflicts with …` | 加载了两套 hashline。把独立的 `pi-hashline-edit-pro` 条目从 `packages` 里移除。 |
-| 账本旁边出现逐次 `Read(path)` 行 | `read` / `replace` / `undo_last_replace` 出现在 `tools.passthrough` 里。把它们去掉；启动迁移正常情况下会自动处理。 |
+| 账本旁边出现逐次 `Read(path)` 行 | 有 hashline 工具名出现在 `tools.passthrough` 里。把它去掉；启动迁移正常情况下会自动处理。 |
 | 子代理完成通知还是很啰嗦 | `@tintinweb/pi-subagents` 先于本扩展加载。Pi 对同一 custom 消息类型只取最先注册的 renderer，所以本扩展必须在前面。 |
 | 看起来完全没变化 | 执行 `/reload`。若仍无变化，确认配置文件存在，且只安装了一个包。 |
 
@@ -208,7 +208,7 @@ seed 的 bundle 配置刻意不同于 display-intent 独立安装时的默认值
 }
 ```
 
-已存在的配置不会被覆盖。启动迁移会从历史 `tools.passthrough` 里移除 `read`、`replace`、`undo_last_replace`，并补回 `Agent`，让 hashline 调用可以保持聚合与静默。
+已存在的配置不会被覆盖。启动迁移会把每个 hashline 工具名（含已被淘汰的 `undo_last_replace`）从历史 `tools.passthrough` 里移除，并补回 `Agent`，让 hashline 调用可以保持聚合与静默。
 
 ## 加载顺序与保障
 
@@ -257,7 +257,7 @@ npm test
 
 ## 环境要求
 
-- Pi coding agent >= 0.80（`@earendil-works/pi-coding-agent`）；开发与验证基于 0.85.x
+- Pi coding agent >= 0.84（`@earendil-works/pi-coding-agent`）；开发与验证基于 0.85.x。这个下限来自 `pi-hashline-edit-pro` 4.x。
 - Node.js >= 22.19，这是 Pi 与 `pi-hashline-edit-pro` 共同的要求
 - 一个交互式的终端会话。安静账本是终端渲染器。
 

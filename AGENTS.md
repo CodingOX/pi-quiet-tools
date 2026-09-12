@@ -63,7 +63,7 @@ Avoid editing files under `node_modules/`.
 ## Dependencies
 
 - `@zhcsyncer/pi-tool-display-intent` → `file:../../vendor/pi-extensions/packages/pi-tool-display-intent`
-- `pi-hashline-edit-pro` → npm `^` range; lockfile pins the install
+- `pi-hashline-edit-pro` → npm, **pinned exactly** (`4.2.5`). Never widen this to a `^` range: at the previous pin, `^2.6.1` resolved to 2.8.4, which had already renamed `undo_last_replace` to `undo_last_change`, so a plain `npm update` silently broke the glue. See `docs/upstream-sync.md`.
 
 ```bash
 npm run submodule:init          # clone submodule + add `upstream` remote
@@ -95,9 +95,13 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 2. User prompt triggers multiple `read` calls in one assistant turn → collapsed open ledger shows `Tools (...)` plus up to 3 Open rows (pending/running take slots first; leftover slots are recent done, including silent tools); no hashline per-file bodies. After settle, header + receipt only.
 3. A later assistant turn with more tools gets its **own** Tools ledger after that turn's Markdown, not one block pinned at the bottom.
 4. Mid-turn assistant prose (text before `toolUse`) stays visible as Markdown; thinking stays hidden.
-5. `replace` still works for the agent (hashline behavior unchanged).
+5. `replace` and `insert` still work for the agent (hashline behavior unchanged). `anchor_grep` is the active search tool; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
-7. Existing display-intent config: passthrough migration removes `read` / `replace` / `undo_last_replace` if present, and restores `Agent` so subagent dispatch stays outside the quiet Tools ledger. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
+7. Existing display-intent config: passthrough migration strips every name in `HASHLINE_TOOL_NAME_SET` (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, so subagent dispatch stays outside the quiet Tools ledger. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
+
+## Where hashline tool names live
+
+`packages/core/src/hashline-tools.ts` is the single source of truth for the tool names `pi-hashline-edit-pro` registers. Four glue modules read it: the silent set, passthrough migration, duplicate-load detection, and the minimal-UI list. When upstream renames or adds a tool, edit that one file and update its tests — do not re-scatter the names.
 
 ## Naming
 

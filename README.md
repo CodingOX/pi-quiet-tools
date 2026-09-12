@@ -10,7 +10,7 @@ A single Pi extension package that makes the terminal quieter without taking any
 
 | Package | Responsibility |
 | --- | --- |
-| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | Hash-anchored `read`, `replace`, and `undo_last_replace` for the model |
+| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | Hash-anchored `read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` for the model |
 | [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | Tool renderers, result compaction, diffs, custom/MCP tool decoration, and Tools ledgers |
 | `packages/core` | Load order, duplicate guards, quiet renderers, narration handling, and compact subagent notifications |
 
@@ -26,7 +26,7 @@ Three claims define what "quiet" means here. Each one has an accepted decision r
 
 **1. Signal over transcript.** Tool activity collapses into a *Tools ledger* — a header, at most three Open rows, and a receipt. File bodies, diffs, and hashline output never leak into the transcript view. `Ctrl+O` is always available when you do want the full call list.
 
-**2. An open ledger must look alive.** A running phase shows a live mark and a ticking elapsed time, and keeps up to three *Open rows*: pending and running calls take slots first, then the most recently completed calls. Silent tools (`read`, `replace`, `undo_last_replace`) share those rows instead of holding a private live pin, so a long `bash` is never hidden behind a `read`.
+**2. An open ledger must look alive.** A running phase shows a live mark and a ticking elapsed time, and keeps up to three *Open rows*: pending and running calls take slots first, then the most recently completed calls. Silent tools (`read`, `replace`, `insert`, `undo_last_change`, `anchor_grep`) share those rows instead of holding a private live pin, so a long `bash` is never hidden behind a `read`.
 
 **3. Narration stays.** Mid-turn assistant Markdown is real content, so it remains visible and ends the current tool phase. Thinking placeholders and structured control noise are removed from terminal narration.
 
@@ -64,7 +64,7 @@ Default bundle policy:
 
 - `per-turn` Tools ledger: consecutive tool-only assistant messages stay in one ledger; visible assistant Markdown or a mid-turn steer starts the next tool phase.
 - Intent fields are disabled by default in the bundle. The upstream extension can still render deterministic tool metadata.
-- Result mode is `summary`; `read`, `replace`, and `undo_last_replace` stay quiet while their counts remain in the ledger.
+- Result mode is `summary`; `read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` stay quiet while their counts remain in the ledger. `anchor_grep` is the anchored search that replaces the built-in `grep`; its hits already carry anchors, so an edit can be made without a separate `read`.
 - `Agent` keeps its native renderer. `edit` is also kept outside the quiet ledger by the seeded passthrough configuration.
 - Interim assistant Markdown remains visible; thinking placeholders and structured/control noise are removed from terminal narration.
 - Subagent completion notices use one compact status line when this extension loads before `@tintinweb/pi-subagents`; transcript paths and result-preview metadata are not shown.
@@ -90,7 +90,7 @@ Run `/reload` (or restart Pi), then confirm three things:
 2. **Tools are hash-anchored.** Ask the model to read a file. Each line should come back as `anchor│content`:
 
    ```text
-   9n0│# pi-quiet-tools
+   Dafo│# pi-quiet-tools
    ```
 
    No anchors means the hashline layer did not load.
@@ -133,7 +133,7 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 | Symptom | Cause and fix |
 | --- | --- |
 | `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
-| Per-call `Read(path)` rows appear next to a ledger | `read` / `replace` / `undo_last_replace` are in `tools.passthrough`. Remove them; startup migration normally does this for you. |
+| Per-call `Read(path)` rows appear next to a ledger | A hashline tool name is in `tools.passthrough`. Remove it; startup migration normally does this for you. |
 | Subagent completion notices are still verbose | `@tintinweb/pi-subagents` is loading before this extension. Pi picks the first registered renderer for a custom message type, so this one has to come first. |
 | Nothing looks different | Run `/reload`. If it still looks unchanged, confirm the config file exists and that only one package is installed. |
 
@@ -207,7 +207,7 @@ The seeded bundle configuration is intentionally different from the standalone d
 }
 ```
 
-Existing configuration is not overwritten. Startup migration removes `read`, `replace`, and `undo_last_replace` from legacy `tools.passthrough` entries and restores `Agent`, so hashline calls can remain aggregated and silent.
+Existing configuration is not overwritten. Startup migration strips every hashline tool name — including the retired `undo_last_replace` — from legacy `tools.passthrough` entries and restores `Agent`, so hashline calls can remain aggregated and silent.
 
 ## Load order and safeguards
 
@@ -256,7 +256,7 @@ Then reload Pi.
 
 ## Requirements
 
-- Pi coding agent >= 0.80 (`@earendil-works/pi-coding-agent`); developed and verified against 0.85.x
+- Pi coding agent >= 0.84 (`@earendil-works/pi-coding-agent`); developed and verified against 0.85.x. This floor comes from `pi-hashline-edit-pro` 4.x.
 - Node.js >= 22.19, as required by both Pi and `pi-hashline-edit-pro`
 - An interactive terminal session. The quiet ledger is a terminal renderer.
 

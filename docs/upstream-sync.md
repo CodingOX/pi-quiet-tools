@@ -1,6 +1,8 @@
 # Upstream sync evaluation
 
-Status: **evaluated, not scheduled** — hashline is a candidate for a dedicated migration; display-intent is deliberately deferred.
+Status: **hashline migration done; display-intent deliberately deferred.**
+
+The hashline half of this record has been executed — see [What the hashline migration changed](#what-the-hashline-migration-changed). The analysis below is kept because it is still the reasoning behind the current pins, and because the display-intent half remains open.
 
 Recorded 2026-09-12 against hashline 2.6.1 and display-intent 0.9.0. Read this before re-running any upstream update, so the analysis is not repeated from scratch. Claims below were verified against source or by execution; anything resting on judgement instead of evidence is called out inline.
 
@@ -8,7 +10,7 @@ Recorded 2026-09-12 against hashline 2.6.1 and display-intent 0.9.0. Read this b
 
 | Dependency | Channel | Pinned | Upstream | Call |
 | --- | --- | --- | --- | --- |
-| `pi-hashline-edit-pro` | npm | **2.6.1** (exact) | **4.2.5** | 🟢 Worth migrating in a dedicated change |
+| `pi-hashline-edit-pro` | npm | **4.2.5** (exact) | **4.2.5** | ✅ Migrated |
 | `@zhcsyncer/pi-tool-display-intent` | submodule `vendor/pi-extensions` | **0.9.0** (`0e90617`) | **0.10.0** | 🔴 Defer — cost exceeds gain right now |
 
 The two channels are independent. `npm run update:upstream` only touches hashline; the submodule moves only through `npm run sync:display-intent`.
@@ -34,7 +36,7 @@ So the `exported tool names` and `anchor width` seams both moved, not just one.
 change pi-hashline-edit-pro 2.6.1 => 2.8.4
 ```
 
-This is why the dependency is now pinned to the exact version `2.6.1`. A plain `npm update` (the `update:upstream` range mode) can no longer break the glue silently. Reaching 4.2.5 now requires the explicit `--latest` path, which rewrites the pin to `^4.2.5` and must be done as part of the migration, not before it.
+**The pin must stay exact.** While this repo sat on `^2.6.1`, a plain `npm update` (the `update:upstream` range mode) resolved to 2.8.4 — a version that had already renamed the tool — and silently broke the glue. The dependency is therefore pinned to `4.2.5` with no range. Keep it that way: move the pin deliberately, verify, and re-pin exactly.
 
 ### Capability gain
 
@@ -42,22 +44,44 @@ This is why the dependency is now pinned to the exact version `2.6.1`. A plain `
 - **`insert` fills a semantic hole.** Inserting content currently means going through `replace`, which risks removing the anchor line. `insert` states explicitly that nothing is removed, reports a noop, and reuses the `replace` safety machinery (undo saved before write, BOM/EOL preservation).
 - **`Tool result details` is new machine-readable metadata.** `read` gains `snapshotId` / `nextOffset` / `truncation`; `replace` and `insert` gain `diff` / `patch` / `changedLines` / `batch` / `metrics`. A quiet ledger currently can only count calls; these fields would let it report what actually changed and how much.
 
-### What the migration actually touches
+### What the hashline migration changed
 
-Four source files hard-code the old tool name (plus one test file):
+The rename originally looked like a four-file find-and-replace. It was done differently on purpose, because that shape was the actual defect: the same name list was written out four times, so every upstream rename meant hunting for all four copies. The list now lives in one module.
 
 ```text
-packages/core/src/aggregate-silent-ledger.ts   SILENT_AGGREGATE_TOOLS
-packages/core/src/config-seed.ts               QUIET_UI_PASSTHROUGH_REMOVE
-packages/core/src/upstream-loader.ts           HASHLINE_TOOL_NAMES
-packages/core/src/register-tool-hook.ts        MINIMAL_UI_TOOLS
-packages/core/src/config-seed.test.ts          (assertions)
+packages/core/src/hashline-tools.ts           ← single source of truth (new)
+  HASHLINE_TOOLS          read, replace, insert, undo_last_change, anchor_grep
+  LEGACY_HASHLINE_TOOLS   undo_last_replace (retired)
+  HASHLINE_TOOL_NAME_SET  current + retired, for matching
 ```
 
-`insert` and `anchor_grep` must be added to the silent set, otherwise their per-call rows leak beside the ledger. The built-in `edit` tool is still force-disabled in 4.2.5 (`setActiveTools(active.filter((t) => t !== "edit"))`), so that behaviour survives.
+Four modules now consume that set instead of repeating it:
 
-The 3→4 char anchor change is **narrower than it looks**: glue contains no parse of anchor width or shape. The `│` characters in `packages/core` are Ctrl+O frame edges, not anchor separators, so the ledger regexes do not depend on anchor width. The real exposure is any code path that round-trips `anchor│content` text, which glue does not do.
+| Module | Was | Now |
+| --- | --- | --- |
+| `aggregate-silent-ledger.ts` | inline `Set` of 3 names | `HASHLINE_TOOL_NAME_SET` |
+| `config-seed.ts` | inline `Set` of 3 names | `HASHLINE_TOOL_NAME_SET` |
+| `upstream-loader.ts` | `HASHLINE_TOOL_NAMES` array + cast | membership test on the shared set |
+| `register-tool-hook.ts` | inline `Set` of 3 names | `HASHLINE_TOOL_NAME_SET` |
 
+Keeping the retired name in the matching set is deliberate. It costs nothing, and it means an old config entry or a not-yet-upgraded hashline install still gets silenced instead of suddenly leaking per-call rows.
+
+Beyond the rename:
+
+- `insert` and `anchor_grep` joined the silent set. Both render file content or a diff (`anchor_grep` prints up to 16 match lines collapsed), so leaving them out would have leaked bodies beside the ledger.
+- The version floor moved up where it had become a lie: `engines.node` `>=20` → `>=22.19.0`, and the `pi-coding-agent` / `pi-tui` peer range `>=0.80.0` → `>=0.84.0`. Those are hashline 4.x's own requirements, not preferences.
+- Docs and tests referencing the old name were updated (`CONTEXT.md`, both READMEs, `AGENTS.md`, `config-seed.test.ts`).
+- The README's anchor example became 4 characters (`Dafo│`), matching `HASH_LEN = 4` in the new hashline.
+
+The built-in `edit` tool is still force-disabled in 4.2.5 (`setActiveTools((t) => t !== "edit")`), so that behaviour carried over unchanged.
+
+The 3→4 char anchor change stayed **narrower than it looked**: glue contains no parse of anchor width or shape. The `│` characters in `packages/core` are Ctrl+O frame edges, not anchor separators, so no ledger predicate depended on anchor width. Only the README sample needed updating, because it is documentation of `read` output.
+
+New regression coverage, all verified to fail when the name list is wrong:
+
+- `aggregate-silent-ledger.test.ts` — the 4.x names are silenced; the retired name still is; an `insert`-led ledger survives.
+- `upstream-loader.test.ts` — duplicate-load detection recognises every current tool name (a miss there re-registers hashline and makes Pi report `Tool "read" conflicts with ...`), and still ignores unrelated local tools and the built-in `read`.
+- `config-seed.test.ts` — passthrough migration strips current, new, and retired names alike.
 ## Why display-intent is deferred
 
 ### The fork and upstream have genuinely diverged
@@ -127,15 +151,7 @@ Click-to-expand rows, a read-only Result/Args inspector with Metadata, Ctrl+O gr
 Inference, not verified: that 0.10.0's UI features would still be reachable after reworking `per-turn` on the new base. Judging the size of that work needs a fresh look at `aggregate-activity.ts` in 0.10.0, not an estimate from this record.
 
 ## When revisiting this
-
-Migrate hashline and display-intent as **two separate efforts**, hashline first. Do not combine them: they have different blast radii and only hashline is testable through the existing suite.
-
-For hashline:
-
-1. Move the pin to the new version deliberately (`npm run update:upstream:latest`, which rewrites the range).
-2. Rename the tool across the four source files and the test; add `insert` and `anchor_grep` to the silent set.
-3. Re-check whether anything round-trips `anchor│content` now that anchors are 4 chars.
-4. Gate on `npm run typecheck`, `npm test`, then a manual Pi pass.
+Hashline is migrated. Display-intent remains deferred, and it is the only open item here.
 
 For display-intent:
 
