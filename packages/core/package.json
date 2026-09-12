@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@zhcsyncer/pi-tool-display-intent": "file:../../vendor/pi-extensions/packages/pi-tool-display-intent",
-    "pi-hashline-edit-pro": "^2.6.1"
+    "pi-hashline-edit-pro": "2.6.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.80.0 <1",
