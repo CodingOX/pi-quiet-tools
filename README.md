@@ -24,17 +24,16 @@ Install this repository as **one** extension. Do not also install `pi-hashline-e
 
 Three claims define what "quiet" means here. Each one has an accepted decision record:
 
-**1. Signal over transcript.** Tool activity collapses into a *Tools ledger* — a header, at most three Open rows, and a receipt. File bodies, diffs, and hashline output never leak into the transcript view. `Ctrl+O` is always available when you do want the full call list.
+**1. Signal over transcript.** Tool activity collapses into a *Tools ledger* — a header, at most three Open rows, and a receipt. File bodies and hashline anchors never leak into the transcript view. Applied `replace` / `insert` calls are the exception: they show a truncated +/- snippet, not the whole file. `Ctrl+O` is always available when you do want the full call list.
 
-**2. An open ledger must look alive.** A running phase shows a live mark and a ticking elapsed time, and keeps up to three *Open rows*: pending and running calls take slots first, then the most recently completed calls. Silent tools (`read`, `replace`, `insert`, `undo_last_change`, `anchor_grep`) share those rows instead of holding a private live pin, so a long `bash` is never hidden behind a `read`.
-
+**2. An open ledger must look alive.** A running phase shows a live mark and a ticking elapsed time, and keeps up to three *Open rows*: pending and running calls take slots first, then the most recently completed calls. Silent tools (`read`, `undo_last_change`, `anchor_grep`) share those rows instead of holding a private live pin, so a long `bash` is never hidden behind a `read`.
 **3. Narration stays.** Mid-turn assistant Markdown is real content, so it remains visible and ends the current tool phase. Thinking placeholders and structured control noise are removed from terminal narration.
 
 Read the decisions and the shared vocabulary:
 
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) — why open ledgers tick and where that rendering lives
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) — why glue stopped re-counting the three-row window
-- [`CONTEXT.md`](./CONTEXT.md) — glossary: Tools ledger, open ledger, settled ledger, Open rows, silent tool, open elapsed, ledger receipt
+- [`CONTEXT.md`](./CONTEXT.md) — glossary: Tools ledger, open ledger, settled ledger, Open rows, silent tool, visible edit tool, open elapsed, ledger receipt
 - [`docs/upstream-sync.md`](./docs/upstream-sync.md) — evaluated state of both upstream dependencies, and what a sync would break
 
 ## Terminal behavior
@@ -64,12 +63,12 @@ Default bundle policy:
 
 - `per-turn` Tools ledger: consecutive tool-only assistant messages stay in one ledger; visible assistant Markdown or a mid-turn steer starts the next tool phase.
 - Intent fields are disabled by default in the bundle. The upstream extension can still render deterministic tool metadata.
-- Result mode is `summary`; `read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` stay quiet while their counts remain in the ledger. `anchor_grep` is the anchored search that replaces the built-in `grep`; its hits already carry anchors, so an edit can be made without a separate `read`.
+- Result mode is `summary`; `read`, `undo_last_change`, and `anchor_grep` stay quiet while their counts remain in the ledger. `replace` and `insert` stay outside the ledger and show a truncated +/- snippet (about 6 change lines). `anchor_grep` is the anchored search that replaces the built-in `grep`; its hits already carry anchors, so an edit can be made without a separate `read`.
 - `Agent` keeps its native renderer. `edit` is also kept outside the quiet ledger by the seeded passthrough configuration.
 - Interim assistant Markdown remains visible; thinking placeholders and structured/control noise are removed from terminal narration.
 - Subagent completion notices use one compact status line when this extension loads before `@tintinweb/pi-subagents`; transcript paths and result-preview metadata are not shown.
 
-`Ctrl+O` exposes the grouped original tool timeline. It does not make silent tools dump file contents or diffs.
+`Ctrl+O` exposes the grouped original tool timeline. Silent tools still do not dump file bodies; expanded `replace` / `insert` restore hashline's native preview.
 
 ## Usage
 
@@ -122,7 +121,7 @@ Two things deliberately do **not** appear in a ledger: the `›` in-progress nar
 ~/.pi/agent/extension-data/pi-tool-display-intent/config.json
 ```
 
-To have the extension render while keeping `read` / `replace` outside the ledger, remove those names from `tools.passthrough`. To add another high-signal tool that must stay outside the ledger, add its name there.
+`replace` and `insert` stay in `tools.passthrough` so their truncated diffs can paint. Adding `read` there brings back individual Read rows; startup migration strips silent hashline names again. To add another high-signal tool that must stay outside the ledger, add its name there.
 
 Changing tool ownership, layout, intent schema, or call-frame decoration requires `/reload`. Delete the config file and reload Pi to recreate the bundle defaults.
 
@@ -133,7 +132,7 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 | Symptom | Cause and fix |
 | --- | --- |
 | `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. This is Pi's own diagnostic and it does not block startup, so the session still runs. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
-| Per-call `Read(path)` rows appear next to a ledger | A hashline tool name is in `tools.passthrough`. Remove it; startup migration normally does this for you. |
+| Per-call `Read(path)` rows appear next to a ledger | A silent hashline tool name is in `tools.passthrough`. Remove it; startup migration normally does this for you. Truncated `replace` / `insert` snippets beside the ledger are expected. |
 | Subagent completion notices are still verbose | `@tintinweb/pi-subagents` is loading before this extension. Pi picks the first registered renderer for a custom message type, so this one has to come first. |
 | `Failed to load extension: ENOENT … prompts/undo-last-replace.md`, or `Cannot find module … /file-type/index.js` | Pi was started **before** a dependency was replaced on disk, and jiti's module-resolution cache lives for the whole process, so `/reload` cannot clear it. The error names a file that only the *previous* version had (`undo-last-replace.md` in hashline 2.6.1; the root `index.js` entry in file-type 21.3.4). **Restart Pi** — a new process resolves everything correctly. `npm run cache:clear` also drops the jiti disk cache, but it is not a substitute for the restart. |
 | Nothing looks different | Run `/reload`. If it still looks unchanged, confirm the config file exists and that only one package is installed. |
@@ -203,12 +202,12 @@ The seeded bundle configuration is intentionally different from the standalone d
   "toolCalls": { "layout": "per-turn", "style": "compact" },
   "results": { "mode": "summary" },
   "diff": { "collapsedMode": "summary" },
-  "tools": { "passthrough": ["Agent", "edit"] },
+  "tools": { "passthrough": ["Agent", "replace", "insert", "edit"] },
   "advanced": { "truncationHints": false }
 }
 ```
 
-Existing configuration is not overwritten. Startup migration strips every hashline tool name — including the retired `undo_last_replace` — from legacy `tools.passthrough` entries and restores `Agent`, so hashline calls can remain aggregated and silent.
+Existing configuration is not overwritten. Startup migration strips silent hashline names — including the retired `undo_last_replace` — from legacy `tools.passthrough` entries and restores `Agent`, `replace`, and `insert`, so reads stay aggregated while edits can show a truncated diff.
 
 ## Load order and safeguards
 

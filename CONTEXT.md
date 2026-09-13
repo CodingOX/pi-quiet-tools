@@ -21,8 +21,12 @@ The at-most-three tool rows under an open Tools ledger. Pending and running call
 _Avoid_: live current tool, live tail, recent tools, active window, retained rows
 
 **Silent tool**:
-`read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` — the tools registered by `pi-hashline-edit-pro`. They share Open rows with other aggregated tools instead of keeping a private live pin. The set is defined once in `packages/core/src/hashline-tools.ts`.
+`read`, `undo_last_change`, and `anchor_grep` — plus the retired `undo_last_replace`. They share Open rows with other aggregated tools instead of keeping a private live pin. The set is `HASHLINE_SILENT_TOOL_NAME_SET` in `packages/core/src/hashline-tools.ts`.
 _Avoid_: hidden tool, quiet tool
+
+**Visible edit tool**:
+`replace` and `insert`. They stay in `tools.passthrough` and draw a truncated +/- snippet (about 6 change lines) instead of joining the silent ledger-only set. `Ctrl+O` restores hashline's native preview.
+_Avoid_: edit dump, full diff
 
 **Open elapsed**:
 Wall-clock time an open ledger has been active. It is shown only while the ledger is not settled.

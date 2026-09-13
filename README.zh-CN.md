@@ -24,10 +24,9 @@
 
 "安静"在这里由三条主张定义，每条都有已接受（accepted）的决策记录：
 
-**1. 要信号，不要转录。** 工具活动收进一个 *Tools 账本* —— 一个标题行、最多三行 Open rows，加一条 receipt。文件内容、diff、hashline 输出都不会漏进转录视图。真要看完整调用列表时，`Ctrl+O` 永远在。
+**1. 要信号，不要转录。** 工具活动收进一个 *Tools 账本* —— 一个标题行、最多三行 Open rows，加一条 receipt。文件内容和 hashline 锚点都不会漏进转录视图。`replace` / `insert` 是例外：只画截短的 +/- 片段，不是整份文件。真要看完整调用列表时，`Ctrl+O` 永远在。
 
-**2. 开放账本必须看起来还活着。** 正在运行的阶段会显示活跃标记和逐秒走动的 elapsed 时间，并保留最多三行 *Open rows*：pending 和 running 的调用优先占位，剩下的槽位给最近完成的调用。静默工具（`read`、`replace`、`insert`、`undo_last_change`、`anchor_grep`）共享这些行，而不是独占一条 live pin，所以长时间的 `bash` 不会被一个 `read` 挡住。
-
+**2. 开放账本必须看起来还活着。** 正在运行的阶段会显示活跃标记和逐秒走动的 elapsed 时间，并保留最多三行 *Open rows*：pending 和 running 的调用优先占位，剩下的槽位给最近完成的调用。静默工具（`read`、`undo_last_change`、`anchor_grep`）共享这些行，而不是独占一条 live pin，所以长时间的 `bash` 不会被一个 `read` 挡住。
 **3. 旁白要留下。** 中途的 assistant Markdown 是真实内容，所以它保持可见，并结束当前工具阶段。thinking 占位符和结构化控制噪声会从终端旁白中移除。
 
 决策记录与共享术语：
@@ -65,12 +64,12 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 
 - `per-turn` Tools 账本：连续只有工具调用的 assistant 消息留在同一个账本里；出现可见的 assistant Markdown 或一次中途 steer，就开启下一个工具阶段。
 - 本 bundle 默认关闭 intent 字段。上游扩展仍可渲染确定性的工具元数据。
-- 结果模式为 `summary`；`read`、`replace`、`insert`、`undo_last_change`、`anchor_grep` 保持静默，但计数仍留在账本里。`anchor_grep` 是取代内置 `grep` 的锚点搜索：它的命中行自带锚点，可以直接编辑，不必再单独 `read` 一遍。
+- 结果模式为 `summary`；`read`、`undo_last_change`、`anchor_grep` 保持静默，但计数仍留在账本里。`replace` 和 `insert` 留在账本外，画大约 6 行 +/- 片段。`anchor_grep` 是取代内置 `grep` 的锚点搜索：它的命中行自带锚点，可以直接编辑，不必再单独 `read` 一遍。
 - `Agent` 保留原生 renderer。`edit` 也由 seed 的 passthrough 配置留在安静账本之外。
 - 中途的 assistant Markdown 保持可见；thinking 占位符与结构化控制噪声从终端旁白中移除。
 - 当本扩展先于 `@tintinweb/pi-subagents` 加载时，子代理完成通知只占一行紧凑状态行；不显示 transcript 路径和结果预览元数据。
 
-`Ctrl+O` 展开分组后的原始工具时间线。它不会让静默工具开始倾倒文件内容或 diff。
+`Ctrl+O` 展开分组后的原始工具时间线。静默工具仍然不会倾倒文件正文；展开的 `replace` / `insert` 会还原 hashline 原生预览。
 
 ## 使用方法
 
@@ -123,7 +122,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 ~/.pi/agent/extension-data/pi-tool-display-intent/config.json
 ```
 
-想让扩展继续渲染，但把 `read` / `replace` 放到账本外面，就把这两个名字从 `tools.passthrough` 里去掉。想再加一个必须留在账本外的高信号工具，把名字加进去即可。
+`replace` 和 `insert` 默认留在 `tools.passthrough` 里，截短 diff 才能画出来。把 `read` 加进去会重新出现逐次 Read 行；启动迁移会再次清掉静默 hashline 名。想再加一个必须留在账本外的高信号工具，把名字加进去即可。
 
 改动工具归属、布局、intent schema 或 call-frame 装饰需要 `/reload`。删除配置文件并 reload Pi 可以恢复 bundle 默认值。
 
@@ -134,7 +133,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 | 现象 | 原因与处理 |
 | --- | --- |
 | 启动时报 `Tool "read" conflicts with …` | 加载了两套 hashline。这是 Pi 自己给出的诊断，**不会阻断启动**，会话仍可继续。把独立的 `pi-hashline-edit-pro` 条目从 `packages` 里移除。 |
-| 账本旁边出现逐次 `Read(path)` 行 | 有 hashline 工具名出现在 `tools.passthrough` 里。把它去掉；启动迁移正常情况下会自动处理。 |
+| 账本旁边出现逐次 `Read(path)` 行 | 有静默 hashline 工具名出现在 `tools.passthrough` 里。把它去掉；启动迁移正常情况下会自动处理。账本旁出现截短的 `replace` / `insert` 片段是预期行为。 |
 | 子代理完成通知还是很啰嗦 | `@tintinweb/pi-subagents` 先于本扩展加载。Pi 对同一 custom 消息类型只取最先注册的 renderer，所以本扩展必须在前面。 |
 | `Failed to load extension: ENOENT … prompts/undo-last-replace.md`，或 `Cannot find module … /file-type/index.js` | Pi 启动**早于**依赖在磁盘上被替换，而 jiti 的模块解析缓存是**进程级**的，`/reload` 清不掉它。报错里那个文件只有**旧版本**才有（hashline 2.6.1 的 `undo-last-replace.md`；file-type 21.3.4 的根入口 `index.js`）。**重启 Pi** —— 新进程会正确解析。`npm run cache:clear` 能顺带清 jiti 磁盘缓存，但不能替代重启。 |
 | 看起来完全没变化 | 执行 `/reload`。若仍无变化，确认配置文件存在，且只安装了一个包。 |
@@ -204,12 +203,12 @@ seed 的 bundle 配置刻意不同于 display-intent 独立安装时的默认值
   "toolCalls": { "layout": "per-turn", "style": "compact" },
   "results": { "mode": "summary" },
   "diff": { "collapsedMode": "summary" },
-  "tools": { "passthrough": ["Agent", "edit"] },
+  "tools": { "passthrough": ["Agent", "replace", "insert", "edit"] },
   "advanced": { "truncationHints": false }
 }
 ```
 
-已存在的配置不会被覆盖。启动迁移会把每个 hashline 工具名（含已被淘汰的 `undo_last_replace`）从历史 `tools.passthrough` 里移除，并补回 `Agent`，让 hashline 调用可以保持聚合与静默。
+已存在的配置不会被覆盖。启动迁移会把静默 hashline 名（含已被淘汰的 `undo_last_replace`）从历史 `tools.passthrough` 里移除，并补回 `Agent`、`replace`、`insert`，让读操作保持聚合，编辑可以画出截短 diff。
 
 ## 加载顺序与保障
 

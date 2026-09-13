@@ -68,7 +68,7 @@ Keeping the retired name in the matching set is deliberate. It costs nothing, an
 
 Beyond the rename:
 
-- `insert` and `anchor_grep` joined the silent set. Both render file content or a diff (`anchor_grep` prints up to 16 match lines collapsed), so leaving them out would have leaked bodies beside the ledger.
+- `insert` and `anchor_grep` joined the silent set at the 4.x rename. Glue later split `replace` / `insert` back out as visible edits (`HASHLINE_VISIBLE_EDIT_TOOLS`); `HASHLINE_SILENT_TOOL_NAME_SET` is the current matching set for ledger-only tools.
 - The version floor moved up where it had become a lie: `engines.node` `>=20` → `>=22.19.0`, and the `pi-coding-agent` / `pi-tui` peer range `>=0.80.0` → `>=0.84.0`. Those are hashline 4.x's own requirements, not preferences.
 - Docs and tests referencing the old name were updated (`CONTEXT.md`, both READMEs, `AGENTS.md`, `config-seed.test.ts`).
 - The README's anchor example became 4 characters (`Dafo│`), matching `HASH_LEN = 4` in the new hashline.

@@ -10,7 +10,7 @@ Guidance for humans and coding agents working in this repository.
 2. **`vendor/pi-extensions`** — git submodule of [CodingOX/pi-extensions](https://github.com/CodingOX/pi-extensions), tracking [zhcsyncer/pi-extensions](https://github.com/zhcsyncer/pi-extensions). Display-intent source lives here.
 3. **pi-hashline-edit-pro** — still an npm dependency (execution layer).
 
-Design goal: **minimal terminal noise**. Users should see small per-turn tool counts, mid-turn assistant Markdown, and the final answer — not per-call file contents or hashline output.
+Design goal: **minimal terminal noise**. Users should see small per-turn tool counts, truncated edit diffs, mid-turn assistant Markdown, and the final answer — not per-call file reads or hashline anchors.
 
 Do not copy upstream files into `packages/core`. Display-intent changes go in the submodule (then PR to zhcsyncer). Glue stays thin.
 
@@ -24,7 +24,8 @@ pi-quiet-tools/
 
 packages/core/index.ts
   ├─ config-seed.ts              First-run default config + passthrough migration
-  ├─ register-tool-hook.ts       Wrap registerTool; silent renderCall/renderResult
+  ├─ register-tool-hook.ts       Wrap registerTool; silent read/search, compact replace/insert
+  ├─ compact-edit-ui.ts          Truncated +/- preview for visible edits
   ├─ quiet-subagent-notifications.ts  Compress subagent completion notifications
   ├─ host-watchdog.ts            UI-host bash/wall-clock runaway gate
   ├─ aggregate-silent-tools.ts   Swallow non-ledger silent renders; collapsed ledger passes through
@@ -48,7 +49,7 @@ packages/core/index.ts
 
 3. **Load order is load-bearing** — display-intent and hashline both register tools from the *same* extension factory, so Pi sees no conflict and the later registration wins the name. display-intent re-registers the builtins (`read`, `grep`, `find`, `ls`, `write`, `bash`) with builtin descriptions; hashline then registers its own `read` that returns `anchor│content`. Swapping steps 4 and 5 makes the model silently receive un-anchored file content while `read` still looks normal — no error anywhere. `tests/hashline-contract.test.ts` locks the order.
 
-4. **Passthrough vs aggregate** — Putting `read` in display-intent `tools.passthrough` causes **individual Read rows** in the UI. Default config passthrough is only `Agent` and `edit`. Glue migrates away legacy passthrough of hashline tool names.
+4. **Passthrough vs aggregate** — Putting `read` in display-intent `tools.passthrough` causes **individual Read rows** in the UI. Default passthrough is `Agent`, `replace`, `insert`, and leftover `edit`. Glue migrates away silent hashline names (`read`, `undo_last_change`, `anchor_grep`, retired `undo_last_replace`) and restores the visible-edit names so truncated diffs can actually paint.
 
 5. **Config before display-intent import** — `config-seed.ts` runs as a side effect on import **before** `@zhcsyncer/pi-tool-display-intent` loads, because that package reads config at module init.
 
@@ -101,14 +102,14 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 2. User prompt triggers multiple `read` calls in one assistant turn → collapsed open ledger shows `Tools (...)` plus up to 3 Open rows (pending/running take slots first; leftover slots are recent done, including silent tools); no hashline per-file bodies. After settle, header + receipt only.
 3. A later assistant turn with more tools gets its **own** Tools ledger after that turn's Markdown, not one block pinned at the bottom.
 4. Mid-turn assistant prose (text before `toolUse`) stays visible as Markdown; thinking stays hidden.
-5. `replace` and `insert` still work for the agent (hashline behavior unchanged). `anchor_grep` is the active search tool; the built-in `grep` is disabled while it is on.
+5. `replace` and `insert` show a truncated +/- snippet (about 6 change lines, stats on the header). `Ctrl+O` restores hashline's native preview. `anchor_grep` stays silent; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
-7. Existing display-intent config: passthrough migration strips every name in `HASHLINE_TOOL_NAME_SET` (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, so subagent dispatch stays outside the quiet Tools ledger. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
+7. Existing display-intent config: passthrough migration strips silent hashline names (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, `replace`, and `insert`. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
 8. UI host: 50 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
 
 ## Where hashline tool names live
 
-`packages/core/src/hashline-tools.ts` is the single source of truth for the tool names `pi-hashline-edit-pro` registers. Four glue modules read it: the silent set, passthrough migration, duplicate-load detection, and the minimal-UI list. When upstream renames or adds a tool, edit that one file and update its tests — do not re-scatter the names.
+`packages/core/src/hashline-tools.ts` is the single source of truth for the tool names `pi-hashline-edit-pro` registers, split into silent vs visible-edit. Glue reads those sets for the silent renderer, compact edit UI, passthrough migration, and duplicate-load tests. When upstream renames or adds a tool, edit that one file, classify the new name, and update its tests — do not re-scatter the names.
 
 ## Naming
 
