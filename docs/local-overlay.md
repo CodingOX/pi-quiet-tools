@@ -35,7 +35,7 @@ Capabilities that vanilla hashline + standalone display-intent do not ship.
 
 **UI-host watchdog** — `host-watchdog.ts`
 
-Stops a silent bash / wall-clock runaway in the session a human is watching. 50 bash or 30 minutes → nudge; then 5 turns or 3 minutes → later tools are blocked and the model must report current/next work in Chinese. Child sessions (`hasUI !== true`) are exempt. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md).
+Stops a silent bash / wall-clock runaway in the session a human is watching. 80 bash or 30 minutes → nudge; then 5 turns or 3 minutes → later tools are blocked and the model must report current/next work in Chinese. Child sessions (`hasUI !== true`) are exempt. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md).
 
 **Compact edit preview** — `compact-edit-ui.ts`
 
@@ -109,8 +109,9 @@ Internal shape that makes the overlay cheaper to keep, not a new user-facing fea
 **Display-intent duplicate detection by runtime owner.** `/reload` / `/new` / in-process child sessions must not share one prototype patch. Each runtime releases ownership on `session_shutdown`.
 
 **Unified visible-text helpers** — `terminal-text.ts`. Ledger predicates and narration filters strip ANSI/OSC before matching, so colour and box-drawing do not break `Tools (` detection.
-
 **Install plumbing** — `preinstall` clones the submodule at the pinned SHA.
+
+**Separate tsconfig for tests** — `packages/core/src/tsconfig.test.json`. `tsx` treats a tsconfig's `paths` as a runtime resolution map, so the `tsc` stub alias for a hashline **subpath** made the real dependency resolve to a `.d.ts` and broke `npm test`. Test config keeps package-level stubs only; `paths` must stay in sync with `tsconfig.json`.
 
 **Contract tests** — hashline registers exactly the names glue knows; every hashline prompt file resolves; silent vs visible-edit classification is exhaustive. Wrong name lists fail here instead of leaking rows in the terminal.
 

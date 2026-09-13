@@ -22,9 +22,9 @@ const tight = {
   graceMs: 500,
 };
 
-test("default limits lock bashBudget at 50 and nudge on the 50th bash", () => {
+test("default limits lock bashBudget at 80 and nudge on the 80th bash", () => {
   assert.deepEqual(DEFAULT_WATCHDOG_LIMITS, {
-    bashBudget: 50,
+    bashBudget: 80,
     requestWallClockMs: 30 * 60 * 1000,
     graceTurns: 5,
     graceMs: 3 * 60 * 1000,
@@ -32,16 +32,16 @@ test("default limits lock bashBudget at 50 and nudge on the 50th bash", () => {
 
   const watchdog = createWatchdog();
   watchdog.onUserRequest(0);
-  for (let i = 1; i <= 49; i++) {
+  for (let i = 1; i <= 79; i++) {
     const d = watchdog.onToolCall("bash", i);
     assert.equal(watchdog.phase(), "running");
     assert.equal(d.notify, undefined);
     assert.equal(d.block, undefined);
   }
-  const trip = watchdog.onToolCall("bash", 50);
+  const trip = watchdog.onToolCall("bash", 80);
   assert.equal(trip.notify, "nudge");
   assert.equal(trip.block, undefined);
-  assert.equal(watchdog.bashCount(), 50);
+  assert.equal(watchdog.bashCount(), 80);
 });
 
 test("the bash that trips the budget nudges and still runs", () => {

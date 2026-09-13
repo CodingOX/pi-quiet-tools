@@ -23,7 +23,7 @@ export interface WatchdogLimits {
 }
 
 export const DEFAULT_WATCHDOG_LIMITS: WatchdogLimits = {
-  bashBudget: 50,
+  bashBudget: 80,
   requestWallClockMs: 30 * 60 * 1000,
   graceTurns: 5,
   graceMs: 3 * 60 * 1000,

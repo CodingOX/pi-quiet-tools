@@ -106,6 +106,19 @@ If you already cloned without submodules: `npm run submodule:init`.
 
 Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because upstream TypeScript sources do not typecheck under our strict config.
 
+**Tests run with their own tsconfig** (`packages/core/src/tsconfig.test.json`, wired into the core `test` script). `tsx` treats a tsconfig's `paths` as a **runtime** resolution map, so a tsc-only stub alias — especially a **subpath** alias such as `pi-hashline-edit-pro/src/edit-common.ts` — makes the real dependency resolve to a `.d.ts` and tests fail with `does not provide an export named ...`. Keep `paths` in sync between `tsconfig.json` and `tsconfig.test.json`; never re-add a subpath alias to the test config.
+
+## Change closeout gate
+
+Any change to `packages/core`, `vendor/pi-extensions`, the workspace scripts, or the dependency pins is **not done until it has been verified on a reloaded runtime**. Run the `quiet-tools-verify` skill (`.pi/skills/quiet-tools-verify/SKILL.md`) as the closeout pipeline: change inventory → static gate → wiring assertions → user reload → load confirmation → visual walkthrough → closeout verdict.
+
+Two rules that make that pipeline possible:
+
+1. **Never call `/reload` yourself.** Reload terminates the running turn, so the agent cannot continue past it. Stop at the handoff card and let the user reload.
+2. **Never report runtime behaviour as verified without the user's confirmation.** Static checks (typecheck, unit tests, reachability) are the agent's; terminal appearance is the user's.
+
+The skill defers to the manual checklist below for what to look at, and adds the execution order, gates, and failure signatures. When a change introduces a new observable surface, extend both.
+
 ## Testing checklist (manual)
 
 1. Only `pi-quiet-tools` in Pi `packages` — no standalone hashline or display-intent.
@@ -115,7 +128,7 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 5. `replace` and `insert` show a truncated +/- snippet (about 6 change lines, stats on the header). `Ctrl+O` restores hashline's native preview. `anchor_grep` stays silent; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
 7. Existing display-intent config: passthrough migration strips silent hashline names (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, `replace`, and `insert`. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
-8. UI host: 50 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash, grace, and the request clock. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
+8. UI host: 80 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash, grace, and the request clock. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
 
 ## Where hashline tool names live
 

@@ -63,3 +63,7 @@ _Avoid_: kill, abort, cancel
 **Official assistant text**:
 Visible assistant Markdown the human can read — not thinking blocks, not GPT-style `<thinking>` tags, not a leftover session-sequence prefix. The first such text in a UI-host turn resets the bash budget and watchdog phase.
 _Avoid_: thinking, tool dump, narration pin
+
+**Closeout gate**:
+The rule that a change is not done until it has been checked on a reloaded runtime, and the pipeline that does it — `quiet-tools-verify`. The agent may run the static stages alone; the user owns the reload and the visual stages.
+_Avoid_: sign-off, QA pass, final check
