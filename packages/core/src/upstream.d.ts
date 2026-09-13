@@ -15,3 +15,10 @@ declare module "pi-hashline-edit-pro" {
 
   export default function hashlineExtension(pi: ExtensionAPI): void;
 }
+
+declare module "pi-hashline-edit-pro/src/edit-common.ts" {
+  export function tryResolveEditTarget(
+    removeFrom: string | undefined,
+    removeTo?: string,
+  ): string | undefined;
+}

@@ -10,7 +10,8 @@
     "types": ["node"],
     "paths": {
       "@zhcsyncer/pi-tool-display-intent": ["./src/upstream.d.ts"],
-      "pi-hashline-edit-pro": ["./src/upstream.d.ts"]
+      "pi-hashline-edit-pro": ["./src/upstream.d.ts"],
+      "pi-hashline-edit-pro/src/edit-common.ts": ["./src/upstream.d.ts"]
     }
   },
   "include": ["index.ts", "src/**/*.ts"],

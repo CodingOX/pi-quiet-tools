@@ -8,6 +8,12 @@ import {
   formatCompactEditCall,
   formatCompactEditResult,
 } from "./compact-edit-ui.ts";
+import {
+  allocateAnchor,
+  initRegistry,
+  resetRegistryForTests,
+} from "pi-hashline-edit-pro/src/anchor-registry.ts";
+
 
 test("strips hashline anchors and keeps only change lines", () => {
   const { shown, hidden } = compactDiffLines(
@@ -116,6 +122,71 @@ test("call line falls back from path to range to anchor", () => {
   );
 });
 
+test("call line uses owned hashline anchors as the file path", async () => {
+  resetRegistryForTests();
+  await initRegistry(undefined);
+  try {
+    const from = allocateAnchor("/repo/demo.md", "checksum-from");
+    const to = allocateAnchor("/repo/demo.md", "checksum-to");
+    assert.equal(
+      formatCompactEditCall(
+        "replace",
+        { remove_from: from, remove_to: to },
+        undefined,
+        { cwd: "/repo" },
+      ),
+      "replace demo.md",
+    );
+    assert.equal(
+      formatCompactEditCall(
+        "insert",
+        { anchor: from, direction: "after", lines: ["x"] },
+        undefined,
+        { cwd: "/repo" },
+      ),
+      "insert demo.md",
+    );
+  } finally {
+    resetRegistryForTests();
+  }
+});
+
+test("call line shows cwd-relative file, never an absolute dump", () => {
+  assert.equal(
+    formatCompactEditCall(
+      "replace",
+      { remove_from: "pdBO", remove_to: "THGu" },
+      undefined,
+      {
+        cwd: "/repo",
+        state: { resolvedPath: "/repo/_quiet_tools_ui_probe.tmp" },
+      },
+    ),
+    "replace _quiet_tools_ui_probe.tmp",
+  );
+  assert.equal(
+    formatCompactEditCall(
+      "replace",
+      { path: "/repo/packages/core/src/compact-edit-ui.ts" },
+      undefined,
+      { cwd: "/repo" },
+    ),
+    "replace packages/core/src/compact-edit-ui.ts",
+  );
+  assert.equal(
+    formatCompactEditCall(
+      "insert",
+      {},
+      undefined,
+      {
+        cwd: "/repo",
+        state: { resolvedPath: "/elsewhere/secret.ts" },
+      },
+    ),
+    "insert secret.ts",
+  );
+});
+
 test("applied result shows stats and truncated diff", () => {
   const text = formatCompactEditResult(
     "replace",
@@ -211,4 +282,56 @@ test("expanded compact wrapper hands back the original renderer", () => {
     {},
   ) as Text;
   assert.equal(expandedResult.render(80).join("\n").trim(), "FULL RESULT");
+});
+
+test("collapsed replace title shows the relative file, not the anchor range", async () => {
+  resetRegistryForTests();
+  await initRegistry(undefined);
+  try {
+    const from = allocateAnchor("/repo/_quiet_tools_ui_probe.tmp", "checksum-from");
+    const to = allocateAnchor("/repo/_quiet_tools_ui_probe.tmp", "checksum-to");
+    const tool = compactEditToolUi({
+      name: "replace",
+      renderCall: () => new Text("FULL CALL", 0, 0),
+      renderResult: () => new Text("FULL RESULT", 0, 0),
+    } as never);
+    const collapsed = tool.renderCall?.(
+      { remove_from: from, remove_to: to },
+      { fg: (_color: string, text: string) => text } as never,
+      { cwd: "/repo", state: {} },
+    ) as Text;
+    assert.equal(
+      collapsed.render(80).join("\n").trim(),
+      "replace _quiet_tools_ui_probe.tmp",
+    );
+    assert.doesNotMatch(collapsed.render(80).join("\n"), /FULL CALL/);
+    assert.doesNotMatch(collapsed.render(80).join("\n"), new RegExp(from));
+  } finally {
+    resetRegistryForTests();
+  }
+});
+
+test("collapsed path resolve does not mutate lastComponent", () => {
+  const last = new Text("STALE", 0, 0);
+  const tool = compactEditToolUi({
+    name: "replace",
+    renderCall(
+      _args: unknown,
+      _theme: unknown,
+      context?: { lastComponent?: Text },
+    ) {
+      const target = context?.lastComponent ?? new Text("", 0, 0);
+      target.setText("HASHLINE CALL");
+      return target;
+    },
+    renderResult: () => new Text("FULL RESULT", 0, 0),
+  } as never);
+  const collapsed = tool.renderCall?.(
+    { remove_from: "Ab12", remove_to: "Cd34" },
+    { fg: (_color: string, text: string) => text } as never,
+    { cwd: "/repo", state: { resolvedPath: "/repo/a.ts" }, lastComponent: last },
+  ) as Text;
+  assert.equal(collapsed.render(80).join("\n").trim(), "replace a.ts");
+  assert.equal(last.render(80).join("\n").trim(), "STALE");
+  assert.doesNotMatch(collapsed.render(80).join("\n"), /HASHLINE CALL/);
 });

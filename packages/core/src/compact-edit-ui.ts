@@ -1,6 +1,8 @@
+import { basename, isAbsolute, relative } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET } from "./hashline-tools.js";
+import { tryResolveEditTarget } from "pi-hashline-edit-pro/src/edit-common.ts";
 
 /**
  * 折叠态最多画出的变更行数。
@@ -25,6 +27,7 @@ type CompactRenderContext = {
   expanded?: boolean;
   isError?: boolean;
   args?: unknown;
+  cwd?: string;
   state?: { resolvedPath?: string };
 };
 
@@ -53,9 +56,28 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /**
- * 折叠态标题用的目标：path → 已解析路径 → 锚点范围 → 单锚点。
+ * 标题只给人看：仓库相对路径，绝不把绝对目录甩到终端上。
+ * 文件在 cwd 外时退回 basename，避免 `../` 或 `/Users/...`。
+ */
+function toDisplayPath(path: string, cwd?: string): string {
+  if (!isAbsolute(path)) {
+    return path.replace(/\\/g, "/").replace(/^\.\//, "");
+  }
+  if (typeof cwd === "string" && cwd.length > 0) {
+    const rel = relative(cwd, path).replace(/\\/g, "/");
+    if (rel.length > 0 && rel !== ".." && !rel.startsWith("../")) {
+      return rel;
+    }
+  }
+  return basename(path);
+}
+
+/**
+ * 折叠态标题用的目标：path → 已解析路径 → 注册表反查 → 锚点范围 → 单锚点。
  *
  * hashline 默认不强制 path，insert 经常只有 anchor。只认 path 会变成 `insert ...`。
+ * 有文件路径时显示相对路径，不再把锚点范围当标题。
+ * 注册表反查是同步 Map.get，不碰磁盘；查不到再退回锚点给模型看的身份。
  */
 function editTarget(
   args: unknown,
@@ -64,18 +86,25 @@ function editTarget(
   const record = asRecord(args);
   const path = stringField(record, "path");
   if (path) {
-    return path;
+    return toDisplayPath(path, context?.cwd);
   }
   const resolved = stringField(asRecord(context?.state), "resolvedPath");
   if (resolved) {
-    return resolved;
+    return toDisplayPath(resolved, context?.cwd);
   }
   const from = stringField(record, "remove_from");
   const to = stringField(record, "remove_to");
+  const anchor = stringField(record, "anchor");
+  // 自己查 hashline 会话注册表，不赌原 renderCall 把 resolvedPath 写回来。
+  const owned =
+    (from ? tryResolveEditTarget(from, to) : undefined) ??
+    (anchor ? tryResolveEditTarget(anchor) : undefined);
+  if (owned) {
+    return toDisplayPath(owned, context?.cwd);
+  }
   if (from && to) {
     return `${from}→${to}`;
   }
-  const anchor = stringField(record, "anchor");
   if (anchor) {
     return anchor;
   }
@@ -254,7 +283,8 @@ function textResult(content: string): Text {
 /**
  * 给 replace / insert 套上截短 renderer。
  *
- * 折叠态自己画；Ctrl+O 展开把原 hashline renderer 还回去。
+ * 折叠态自己画标题和截短 diff；Ctrl+O 展开才把原 hashline renderer 还回去。
+ * 文件名由 editTarget 直接查会话注册表，折叠态不再调用原 renderCall。
  * WeakSet 同时记下原对象和包装对象，避免 hook 注册后再被 getAllTools 回写套第二层。
  */
 export function compactEditToolUi(tool: ToolDefinition): ToolDefinition {
