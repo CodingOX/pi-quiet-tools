@@ -8,6 +8,10 @@ import toolDisplayIntentExtension from "@zhcsyncer/pi-tool-display-intent";
 import {
   HASHLINE_TOOLS,
   HASHLINE_TOOL_NAME_SET,
+  HASHLINE_SILENT_TOOL_NAME_SET,
+  HASHLINE_SILENT_TOOLS,
+  HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET,
+  HASHLINE_VISIBLE_EDIT_TOOLS,
 } from "../packages/core/src/hashline-tools.js";
 
 test("hashline registers exactly the tool names glue knows about", () => {
@@ -71,6 +75,25 @@ test("matching set covers current names plus retired", () => {
   for (const n of HASHLINE_TOOLS)
     assert.equal(HASHLINE_TOOL_NAME_SET.has(n), true, n);
   assert.equal(HASHLINE_TOOL_NAME_SET.has("undo_last_replace"), true);
+});
+
+test("every hashline tool is classified silent or visible edit", () => {
+  for (const name of HASHLINE_TOOLS) {
+    const silent = HASHLINE_SILENT_TOOL_NAME_SET.has(name);
+    const visible = HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(name);
+    assert.equal(
+      silent !== visible,
+      true,
+      `${name} must be in exactly one of silent or visible-edit`,
+    );
+  }
+  for (const name of HASHLINE_VISIBLE_EDIT_TOOLS) {
+    assert.equal(HASHLINE_SILENT_TOOL_NAME_SET.has(name), false, name);
+  }
+  for (const name of HASHLINE_SILENT_TOOLS) {
+    assert.equal(HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(name), false, name);
+  }
+  assert.equal(HASHLINE_SILENT_TOOL_NAME_SET.has("undo_last_replace"), true);
 });
 
 /**

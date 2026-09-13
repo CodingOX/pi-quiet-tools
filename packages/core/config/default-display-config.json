@@ -17,6 +17,8 @@
   "tools": {
     "passthrough": [
       "Agent",
+      "replace",
+      "insert",
       "edit"
     ]
   },

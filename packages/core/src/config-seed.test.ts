@@ -53,22 +53,28 @@ test("keeps Agent passthrough and strips hashline names", async () => {
 
     assert.deepEqual(migrated.tools.passthrough, [
       "Agent",
+      "replace",
+      "insert",
       "edit",
       "custom_ui",
       42,
     ]);
     const sparseConfig: Record<string, unknown> = { tools: {} };
     assert.equal(migrateQuietToolsPassthrough(sparseConfig), true);
-    assert.deepEqual(sparseConfig, { tools: { passthrough: ["Agent"] } });
+    assert.deepEqual(sparseConfig, {
+      tools: { passthrough: ["Agent", "replace", "insert"] },
+    });
     const configWithoutTools: Record<string, unknown> = {};
     assert.equal(migrateQuietToolsPassthrough(configWithoutTools), true);
-    assert.deepEqual(configWithoutTools, { tools: { passthrough: ["Agent"] } });
+    assert.deepEqual(configWithoutTools, {
+      tools: { passthrough: ["Agent", "replace", "insert"] },
+    });
     assert.equal(
       migrateQuietToolsPassthrough({
-        tools: { passthrough: ["Agent", "edit"] },
+        tools: { passthrough: ["Agent", "replace", "insert", "edit"] },
       }),
       false,
-      "a config that already keeps Agent out of the Tools ledger should remain untouched",
+      "a config that already keeps Agent and visible edits should remain untouched",
     );
   } finally {
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -84,7 +90,9 @@ test("restores Agent when a previous glue version folded it into Tools", async (
   };
 
   assert.equal(migrateQuietToolsPassthrough(aggregated), true);
-  assert.deepEqual(aggregated, { tools: { passthrough: ["Agent", "edit"] } });
+  assert.deepEqual(aggregated, {
+    tools: { passthrough: ["Agent", "replace", "insert", "edit"] },
+  });
 });
 
 test("seeds new configurations with Agent kept outside the Tools ledger", async () => {
@@ -100,7 +108,12 @@ test("seeds new configurations with Agent kept outside the Tools ledger", async 
     const seeded = JSON.parse(readFileSync(configPath, "utf8")) as {
       tools: { passthrough: string[] };
     };
-    assert.deepEqual(seeded.tools.passthrough, ["Agent", "edit"]);
+    assert.deepEqual(seeded.tools.passthrough, [
+      "Agent",
+      "replace",
+      "insert",
+      "edit",
+    ]);
   } finally {
     if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previousAgentDir;

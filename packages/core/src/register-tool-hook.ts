@@ -3,10 +3,11 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
-
-/** Hashline 工具的 renderer 被替换为空，计数只留在 Tools 账本里。 */
-const MINIMAL_UI_TOOLS = HASHLINE_TOOL_NAME_SET;
+import { compactEditToolUi } from "./compact-edit-ui.js";
+import {
+  HASHLINE_SILENT_TOOL_NAME_SET,
+  HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET,
+} from "./hashline-tools.js";
 
 const REGISTER_TOOL_HOOK_KEY = Symbol.for("pi-tools.registerToolHook.v1");
 
@@ -22,7 +23,7 @@ function silentResult(): Text {
 }
 
 function minimizeHashlineToolUi(tool: ToolDefinition): ToolDefinition {
-  if (!MINIMAL_UI_TOOLS.has(tool.name)) {
+  if (!HASHLINE_SILENT_TOOL_NAME_SET.has(tool.name)) {
     return tool;
   }
 
@@ -40,22 +41,39 @@ function minimizeHashlineToolUi(tool: ToolDefinition): ToolDefinition {
   };
 }
 
+/**
+ * 静默工具清空 renderer；可见编辑换成截短 diff。
+ * 其它工具原样放过。
+ */
+function decorateHashlineToolUi(tool: ToolDefinition): ToolDefinition {
+  if (HASHLINE_SILENT_TOOL_NAME_SET.has(tool.name)) {
+    return minimizeHashlineToolUi(tool);
+  }
+  if (HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(tool.name)) {
+    return compactEditToolUi(tool);
+  }
+  return tool;
+}
+
 export function applyMinimalUiToHashlineTools(pi: ExtensionAPI): void {
   try {
     for (const tool of pi.getAllTools()) {
-      if (!MINIMAL_UI_TOOLS.has(tool.name)) {
+      if (
+        !HASHLINE_SILENT_TOOL_NAME_SET.has(tool.name) &&
+        !HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(tool.name)
+      ) {
         continue;
       }
 
-      // SAFETY: Pi 的 getAllTools() 声明返回宽泛的工具条目类型，而这里只需要
-      // name/renderCall/renderResult 三个字段来覆写 renderer。运行时形状由 Pi 自己
-      // 注册工具时保证，无法用类型系统表达，因此在此处收窄。
-      const minimized = minimizeHashlineToolUi(
+      // SAFETY: Pi 的 getAllTools() 在加载期会 throw；runtime 返回的是没有 renderer
+      // 的浅拷贝，Object.assign 也写不回 registry。真正装饰走 hook。
+      // 这段留下是为了步骤 6 的加载顺序契约，失败就当 no-op。
+      const decorated = decorateHashlineToolUi(
         tool as unknown as ToolDefinition,
       );
       Object.assign(tool, {
-        renderCall: minimized.renderCall,
-        renderResult: minimized.renderResult,
+        renderCall: decorated.renderCall,
+        renderResult: decorated.renderResult,
       });
     }
   } catch {
@@ -73,7 +91,7 @@ export function installRegisterToolHook(pi: ExtensionAPI): void {
   const originalRegisterTool = pi.registerTool.bind(pi);
   const wrappedRegisterTool: ExtensionAPI["registerTool"] = (tool) => {
     originalRegisterTool(
-      minimizeHashlineToolUi(tool as ToolDefinition) as typeof tool,
+      decorateHashlineToolUi(tool as ToolDefinition) as typeof tool,
     );
   };
 

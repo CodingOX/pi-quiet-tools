@@ -145,15 +145,24 @@ test("keeps an ANSI-colored live silent Read row", () => {
 	assert.deepEqual(resolveSilentAggregateLines("read", lines), lines);
 });
 
-test("silences the 4.x hashline tool names", () => {
-	// 2.7.0 起 hashline 的工具集合变了：insert 与 anchor_grep 是新增的，
-	// undo_last_change 是 undo_last_replace 改名后的名字。三者输出都含文件内容
-	// 或 diff，必须和 read/replace 一样只留账本计数，否则会漏出逐条行。
-	for (const toolName of ["insert", "anchor_grep", "undo_last_change"]) {
+test("silences the remaining hashline tool names", () => {
+	// 读、搜索、撤销仍只留账本计数。replace / insert 是可见编辑，不能静默。
+	for (const toolName of ["read", "anchor_grep", "undo_last_change", "undo_last_replace"]) {
 		assert.deepEqual(
 			resolveSilentAggregateLines(toolName, [`✓ ${toolName} something`]),
 			[],
 			`${toolName} should be silenced outside a ledger`,
+		);
+	}
+});
+
+test("does not swallow replace or insert snippets outside a ledger", () => {
+	for (const toolName of ["replace", "insert"]) {
+		const lines = [`${toolName} a.ts  +1 -1`, "-old", "+new"];
+		assert.deepEqual(
+			resolveSilentAggregateLines(toolName, lines),
+			lines,
+			`${toolName} compact diff must remain visible`,
 		);
 	}
 });

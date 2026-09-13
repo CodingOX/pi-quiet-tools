@@ -1,0 +1,214 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { Text } from "@earendil-works/pi-tui";
+import {
+  compactDiffLines,
+  compactEditToolUi,
+  EDIT_PREVIEW_MAX_LINES,
+  formatCompactEditCall,
+  formatCompactEditResult,
+} from "./compact-edit-ui.ts";
+
+test("strips hashline anchors and keeps only change lines", () => {
+  const { shown, hidden } = compactDiffLines(
+    [
+      " Ab12│unchanged context",
+      "-Cd34│old keep",
+      "+Ef56│new keep",
+      " Gh78│more context",
+    ].join("\n"),
+  );
+  assert.deepEqual(shown, ["-old keep", "+new keep"]);
+  assert.equal(hidden, 0);
+});
+
+test("formatCompactEditResult folds leftover change lines", () => {
+  const diff = Array.from(
+    { length: EDIT_PREVIEW_MAX_LINES + 2 },
+    (_, index) => `+Ab${String(index).padStart(2, "0")}│line ${index}`,
+  ).join("\n");
+  const text = formatCompactEditResult(
+    "replace",
+    { path: "a.ts" },
+    {
+      details: { diff, metrics: { added_lines: 8, removed_lines: 0 } },
+    },
+  );
+  assert.match(text, /\+8 -0/);
+  assert.match(text, /\+line 0/);
+  assert.match(text, /\+line 5/);
+  assert.doesNotMatch(text, /\+line 6/);
+  assert.match(text, /\.\.\. 2 more/);
+});
+
+test("caps preview at six change lines and reports the rest", () => {
+  const diff = Array.from(
+    { length: EDIT_PREVIEW_MAX_LINES + 3 },
+    (_, index) => `+Ab${String(index).padStart(2, "0")}│line ${index}`,
+  ).join("\n");
+  const { shown, hidden } = compactDiffLines(diff);
+  assert.equal(shown.length, EDIT_PREVIEW_MAX_LINES);
+  assert.equal(hidden, 3);
+  assert.equal(shown[0], "+line 0");
+  assert.equal(shown[5], "+line 5");
+});
+
+test("skips unified headers, hunk marks, and dedup rows", () => {
+  const { shown, hidden } = compactDiffLines(
+    [
+      "--- a/file.ts",
+      "+++ b/file.ts",
+      "@@ -1,3 +1,3 @@",
+      "-old",
+      "+new",
+      "dedup│ignored",
+      "+Ab12│keep dedup│in content",
+      "-Wx12│also old",
+    ].join("\n"),
+  );
+  assert.deepEqual(shown, ["-old", "+new", "+keep dedup│in content", "-also old"]);
+  assert.equal(hidden, 0);
+});
+
+
+test("keeps four-space hashline change rows", () => {
+  const { shown, hidden } = compactDiffLines("+    │added without an anchor");
+  assert.deepEqual(shown, ["+added without an anchor"]);
+  assert.equal(hidden, 0);
+});
+
+test("call line is tool name plus path, never the replacement body", () => {
+  assert.equal(
+    formatCompactEditCall("replace", {
+      path: "config-seed.ts",
+      replacement_lines: ["a whole file"],
+    }),
+    "replace config-seed.ts",
+  );
+});
+
+
+test("call line falls back from path to range to anchor", () => {
+  assert.equal(
+    formatCompactEditCall("replace", {
+      remove_from: "Ab12",
+      remove_to: "Cd34",
+    }),
+    "replace Ab12→Cd34",
+  );
+  assert.equal(
+    formatCompactEditCall("insert", {
+      anchor: "Ef56",
+      direction: "after",
+      lines: ["x"],
+    }),
+    "insert Ef56",
+  );
+  assert.equal(
+    formatCompactEditCall("insert", {}, undefined, {
+      state: { resolvedPath: "from-state.ts" },
+    }),
+    "insert from-state.ts",
+  );
+  assert.equal(
+    formatCompactEditCall("replace", {}, undefined, undefined),
+    "replace ...",
+  );
+});
+
+test("applied result shows stats and truncated diff", () => {
+  const text = formatCompactEditResult(
+    "replace",
+    { path: "config-seed.ts" },
+    {
+      details: {
+        diff: [
+          '-Ab12│QUIET_UI_PASSTHROUGH_KEEP = ["Agent"]',
+          '+Cd34│QUIET_UI_PASSTHROUGH_KEEP = ["Agent", "replace"]',
+        ].join("\n"),
+        metrics: {
+          classification: "applied",
+          added_lines: 1,
+          removed_lines: 1,
+        },
+      },
+    },
+  );
+  assert.equal(
+    text,
+    [
+      "+1 -1",
+      '-QUIET_UI_PASSTHROUGH_KEEP = ["Agent"]',
+      '+QUIET_UI_PASSTHROUGH_KEEP = ["Agent", "replace"]',
+    ].join("\n"),
+  );
+});
+
+test("noop edits stay on the header", () => {
+  assert.equal(
+    formatCompactEditResult(
+      "insert",
+      { path: "a.ts" },
+      { details: { metrics: { classification: "noop" } } },
+    ),
+    "noop",
+  );
+});
+
+test("errors show the message instead of a diff", () => {
+  assert.equal(
+    formatCompactEditResult(
+      "replace",
+      { path: "a.ts" },
+      {
+        isError: true,
+        content: [{ type: "text", text: "anchor not found" }],
+        details: { diff: "+Ab12│should not appear" },
+      },
+    ),
+    "anchor not found",
+  );
+});
+
+test("partial results stay on the in-progress line", () => {
+  assert.equal(
+    formatCompactEditResult(
+      "replace",
+      { path: "a.ts" },
+      { details: { diff: "+Ab12│secret" } },
+      { isPartial: true },
+    ),
+    "Editing...",
+  );
+});
+
+test("expanded compact wrapper hands back the original renderer", () => {
+  const tool = compactEditToolUi({
+    name: "replace",
+    renderCall: () => new Text("FULL CALL", 0, 0),
+    renderResult: () => new Text("FULL RESULT", 0, 0),
+  } as never);
+  const identity = {
+    fg: (_color: string, text: string) => text,
+  };
+  const collapsed = tool.renderCall?.(
+    { path: "a.ts" },
+    identity as never,
+    {},
+  ) as Text;
+  assert.match(collapsed.render(80).join("\n"), /replace a\.ts/);
+  assert.doesNotMatch(collapsed.render(80).join("\n"), /FULL CALL/);
+
+  const expanded = tool.renderCall?.({ path: "a.ts" }, identity as never, {
+    expanded: true,
+  }) as Text;
+  assert.equal(expanded.render(80).join("\n").trim(), "FULL CALL");
+
+  const expandedResult = tool.renderResult?.(
+    {},
+    { isPartial: false, expanded: true },
+    identity as never,
+    {},
+  ) as Text;
+  assert.equal(expandedResult.render(80).join("\n").trim(), "FULL RESULT");
+});

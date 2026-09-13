@@ -2,7 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getToolDisplayConfigPath } from "./agent-dir.js";
-import { HASHLINE_TOOL_NAME_SET } from "./hashline-tools.js";
+import {
+  HASHLINE_SILENT_TOOL_NAME_SET,
+  HASHLINE_VISIBLE_EDIT_TOOLS,
+} from "./hashline-tools.js";
 
 const PACKAGE_ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const DEFAULT_CONFIG_PATH = join(
@@ -10,26 +13,27 @@ const DEFAULT_CONFIG_PATH = join(
   "config",
   "default-display-config.json",
 );
-
 /**
  * 不进入安静 Tools 账本、保留原 renderer 的工具。
  *
  * 这些是用户必须单独看见的高信号事件，不能只剩账本上的 `×N` 计数。
- * 后续若要把别的工具也从账本里拿出来，把名字加进这个列表即可：
+ * 可见编辑名单来自 hashline-tools；其它高信号名字直接加进这个数组。
  * seed 和迁移会把它写入 `tools.passthrough`，不会动 `edit` 等其它透传项。
  *
  * - Agent：派发子代理是独立事件，必须走自己的进度 renderer。
+ * - replace / insert：编辑是结果，折叠态画截短 diff。
  */
-export const QUIET_UI_PASSTHROUGH_KEEP = ["Agent"] as const;
+export const QUIET_UI_PASSTHROUGH_KEEP = [
+  "Agent",
+  ...HASHLINE_VISIBLE_EDIT_TOOLS,
+] as const;
 
 /**
- * Hashline 工具必须留在账本里只显示计数。旧配置若把它们放进 passthrough，
- * 终端会出现逐次 Read / replace 行。
+ * 启动时从 passthrough 清掉的静默 hashline 名（含已淘汰的旧名）。
  *
- * 必须包含已被淘汰的旧名字（如 `undo_last_replace`）：用户升级前可能把它写进了
- * 配置，只有把旧名字一起清掉，这份配置才不会一直残留一条失效条目。
+ * 可见编辑不在这个集合里：它们必须留在 passthrough，账本折叠态才画得出 diff。
  */
-const QUIET_UI_PASSTHROUGH_REMOVE = HASHLINE_TOOL_NAME_SET;
+const QUIET_UI_PASSTHROUGH_REMOVE = HASHLINE_SILENT_TOOL_NAME_SET;
 
 export function migrateQuietToolsPassthrough(
   raw: Record<string, unknown>,
@@ -55,21 +59,16 @@ export function migrateQuietToolsPassthrough(
     return false;
   }
 
-  const next = passthrough.filter(
+  const stripped = passthrough.filter(
     (name) =>
       typeof name !== "string" || !QUIET_UI_PASSTHROUGH_REMOVE.has(name),
   );
-  const present = new Set(
-    next.filter((name): name is string => typeof name === "string"),
+  const keepSet = new Set<string>(QUIET_UI_PASSTHROUGH_KEEP);
+  const rest = stripped.filter(
+    (name) => typeof name !== "string" || !keepSet.has(name),
   );
-  const missing = QUIET_UI_PASSTHROUGH_KEEP.filter(
-    (name) => !present.has(name),
-  );
-  if (missing.length > 0) {
-    next.unshift(...missing);
-  }
+  const next = [...QUIET_UI_PASSTHROUGH_KEEP, ...rest];
   if (
-    missing.length === 0 &&
     next.length === passthrough.length &&
     next.every((name, index) => name === passthrough[index])
   ) {
