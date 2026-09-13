@@ -2,24 +2,23 @@ import { looksLikeAggregateLedger } from "./aggregate-silent-ledger.js";
 import { stripTerminalSequences as stripRenderSequences } from "./terminal-text.js";
 
 const COLLAPSED_NARRATION_MARK = "›";
-const FRAME_EDGE_PATTERN = /[│└]/;
 const TOOL_OR_STEER_MARKER_PATTERN = /^[✓◐!↳…]/;
 const LEDGER_HEADER_PATTERN = /^Tools\s*\(\s*\d+\s+calls?/;
 
 function isCollapsedNarrationStart(line: string): boolean {
   const plain = stripRenderSequences(line);
-  if (FRAME_EDGE_PATTERN.test(plain)) {
+  const trimmed = plain.trimStart();
+  // Ctrl+O 时间线是框线在前：`│ ›` / `└ …`
+  // 折叠钉是 › 在前。助手 Markdown 自带的 `│` 会变成 `› │ …`，那仍是折叠钉。
+  if (trimmed.startsWith("│") || trimmed.startsWith("└")) {
     return false;
   }
-  return plain.trimStart().startsWith(`${COLLAPSED_NARRATION_MARK} `);
+  return trimmed.startsWith(`${COLLAPSED_NARRATION_MARK} `);
 }
 
 function isCollapsedNarrationContinuation(line: string): boolean {
   const plain = stripRenderSequences(line);
   if (!plain.startsWith("    ")) {
-    return false;
-  }
-  if (FRAME_EDGE_PATTERN.test(plain)) {
     return false;
   }
   const trimmed = plain.trim();
@@ -41,6 +40,7 @@ function isCollapsedNarrationContinuation(line: string): boolean {
  * the Tools ledger so the same prose is not shown twice.
  *
  * Ctrl+O framed rows (`│ ›` / `└`) stay in the expanded timeline.
+ * Collapsed pins that copied assistant markdown (`› │ …`) are still dropped.
  */
 export function omitCollapsedLedgerNarration(lines: readonly string[]): string[] {
   if (!looksLikeAggregateLedger(lines)) {

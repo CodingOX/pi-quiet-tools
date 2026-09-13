@@ -15,6 +15,21 @@ test("drops the collapsed › pin and wrapped continuation from an in-progress T
   ]);
 });
 
+test("drops a collapsed › pin even when assistant markdown already has │", () => {
+  const lines = [
+    "! Tools (22 calls · 13 turns) · 2m31s · 1 failed · bash ×22",
+    "  › │ 🎯 收到。在给你指引前，我必须先验证一个决定性的前提——那 3 个我没改的模板，classpath",
+    "    │ 版本和线上已发布版本是否真的一致。如果不一致，说明它们也需要同步（那你的判断就是对的",
+    "    │ ）。",
+    "  ✓ Bash(python3 - <<'PY' import json)",
+  ];
+
+  assert.deepEqual(omitCollapsedLedgerNarration(lines), [
+    "! Tools (22 calls · 13 turns) · 2m31s · 1 failed · bash ×22",
+    "  ✓ Bash(python3 - <<'PY' import json)",
+  ]);
+});
+
 test("keeps receipt, steer, and tool rows on a Tools ledger", () => {
   const lines = [
     "◐ Tools (16 calls · 3 turns) · bash ×1",
