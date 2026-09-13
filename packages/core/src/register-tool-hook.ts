@@ -4,6 +4,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { compactEditToolUi } from "./compact-edit-ui.js";
+import { lockHashlineEditSchema } from "./hashline-edit-schema.js";
 import {
   HASHLINE_SILENT_TOOL_NAME_SET,
   HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET,
@@ -50,7 +51,7 @@ function decorateHashlineToolUi(tool: ToolDefinition): ToolDefinition {
     return minimizeHashlineToolUi(tool);
   }
   if (HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(tool.name)) {
-    return compactEditToolUi(tool);
+    return compactEditToolUi(lockHashlineEditSchema(tool));
   }
   return tool;
 }
