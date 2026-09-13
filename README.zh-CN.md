@@ -33,7 +33,9 @@
 
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) —— 开放账本为什么要走时钟，以及这部分渲染归谁
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) —— glue 为什么不再自己数那个三行窗口
+- [`docs/adr/0003-ui-host-watchdog.md`](./docs/adr/0003-ui-host-watchdog.md) —— 失控门禁为什么放在 glue，且只作用于 UI host
 - [`CONTEXT.md`](./CONTEXT.md) —— 术语表：Tools 账本、开放账本、已结算账本、Open rows、静默工具、open elapsed、账本 receipt
+- [`docs/local-overlay.md`](./docs/local-overlay.md) —— 相对两个上游，本仓库添加、改动和优化了什么
 - [`docs/upstream-sync.md`](./docs/upstream-sync.md) —— 两个上游依赖的评估结论，以及同步会打断什么
 
 ## 终端行为
@@ -135,7 +137,7 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 | 启动时报 `Tool "read" conflicts with …` | 加载了两套 hashline。这是 Pi 自己给出的诊断，**不会阻断启动**，会话仍可继续。把独立的 `pi-hashline-edit-pro` 条目从 `packages` 里移除。 |
 | 账本旁边出现逐次 `Read(path)` 行 | 有静默 hashline 工具名出现在 `tools.passthrough` 里。把它去掉；启动迁移正常情况下会自动处理。账本旁出现截短的 `replace` / `insert` 片段是预期行为。 |
 | 子代理完成通知还是很啰嗦 | `@tintinweb/pi-subagents` 先于本扩展加载。Pi 对同一 custom 消息类型只取最先注册的 renderer，所以本扩展必须在前面。 |
-| `Failed to load extension: ENOENT … prompts/undo-last-replace.md`，或 `Cannot find module … /file-type/index.js` | Pi 启动**早于**依赖在磁盘上被替换，而 jiti 的模块解析缓存是**进程级**的，`/reload` 清不掉它。报错里那个文件只有**旧版本**才有（hashline 2.6.1 的 `undo-last-replace.md`；file-type 21.3.4 的根入口 `index.js`）。**重启 Pi** —— 新进程会正确解析。`npm run cache:clear` 能顺带清 jiti 磁盘缓存，但不能替代重启。 |
+| `Failed to load extension: ENOENT … prompts/undo-last-replace.md`，或 `Cannot find module … /file-type/index.js` | Pi 启动**早于**依赖在磁盘上被替换。jiti 的模块解析缓存是**进程级**的，`/reload` 清不掉。报错里那个文件只有**旧版本**才有（hashline 2.6.1 的 `undo-last-replace.md`；file-type 21.3.4 的根入口 `index.js`）。**重启 Pi** —— 新进程会正确解析。 |
 | 看起来完全没变化 | 执行 `/reload`。若仍无变化，确认配置文件存在，且只安装了一个包。 |
 
 ## 安装
@@ -253,7 +255,7 @@ npm run typecheck
 npm test
 ```
 
-然后 reload Pi。
+然后重启 Pi。hashline 大版本升级后 `/reload` 不够。
 
 ## 环境要求
 

@@ -14,6 +14,16 @@ Design goal: **minimal terminal noise**. Users should see small per-turn tool co
 
 Do not copy upstream files into `packages/core`. Display-intent changes go in the submodule (then PR to zhcsyncer). Glue stays thin.
 
+What this repo added, changed, and optimized on top of the two upstreams is recorded in [`docs/local-overlay.md`](./docs/local-overlay.md). Update that file in the same change when glue or the fork gains, loses, or reclassifies a behaviour. Do not copy that inventory into this file, `CONTEXT.md`, or the README.
+
+| Need | Read |
+| --- | --- |
+| Shared vocabulary | `CONTEXT.md` |
+| Why a behaviour exists | `docs/adr/` |
+| Overlay vs upstream | `docs/local-overlay.md` |
+| Pins and sync landmines | `docs/upstream-sync.md` |
+| How to work here | this file |
+
 ## Architecture
 
 ```text
@@ -79,7 +89,7 @@ npm run update:upstream:check   # show hashline npm + submodule SHA
 npm run update:upstream         # fetch submodule remotes + bump hashline in range
 ```
 
-After updates: `npm run typecheck`, then Pi `/reload`.
+After updates: `npm run typecheck`, then restart Pi (`/reload` is not enough after a hashline bump).
 
 ## Development
 
@@ -105,7 +115,7 @@ Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because ups
 5. `replace` and `insert` show a truncated +/- snippet (about 6 change lines, stats on the header). `Ctrl+O` restores hashline's native preview. `anchor_grep` stays silent; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
 7. Existing display-intent config: passthrough migration strips silent hashline names (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, `replace`, and `insert`. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
-8. UI host: 50 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
+8. UI host: 50 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash, grace, and the request clock. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
 
 ## Where hashline tool names live
 

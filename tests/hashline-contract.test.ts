@@ -34,15 +34,13 @@ test("hashline registers exactly the tool names glue knows about", () => {
  * 每个 prompt 文件的引用都必须能解析。
  *
  * 上游在 2.7.0 把 undo-last-replace.md 改名为 undo-last-change.md（并删掉了旧文件）。
- * 如果该版本在升级后仍被执行（例如 jiti 编译缓存按「源文件路径的 md5」命名，
- * 而同名缓存可能在原地 npm install 后被旧内容复用），源码会去读已被删除的旧
- * prompt 文件，Pi 加载扩展时直接抛：
+ * 若 Pi 在旧版本时已启动，进程级的 jiti 解析缓存仍指向旧路径，加载会直接抛：
  *
  *   Failed to load extension: ENOENT: no such file or directory, open
  *   '.../pi-hashline-edit-pro/prompts/undo-last-replace.md'
  *
- * 这条测试把「所有 prompt 引用都能读到」变成硬约束：无论缓存状态如何，
- * 只要源码与 prompts 目录不一致就会变红，而不是等到 reload 时才炸。
+ * 解法是重启 Pi，不是 /reload。这条测试把「所有 prompt 引用都能读到」
+ * 变成硬约束：源码与 prompts 目录不一致就会变红，而不是等到加载时才炸。
  */
 test("every hashline prompt reference resolves on disk", () => {
   const packageRoot = dirname(

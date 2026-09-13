@@ -33,7 +33,9 @@ Read the decisions and the shared vocabulary:
 
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) — why open ledgers tick and where that rendering lives
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) — why glue stopped re-counting the three-row window
+- [`docs/adr/0003-ui-host-watchdog.md`](./docs/adr/0003-ui-host-watchdog.md) — why the runaway gate lives in glue and only applies to the UI host
 - [`CONTEXT.md`](./CONTEXT.md) — glossary: Tools ledger, open ledger, settled ledger, Open rows, silent tool, visible edit tool, open elapsed, ledger receipt
+- [`docs/local-overlay.md`](./docs/local-overlay.md) — what this repo added, changed, and optimized on top of the two upstreams
 - [`docs/upstream-sync.md`](./docs/upstream-sync.md) — evaluated state of both upstream dependencies, and what a sync would break
 
 ## Terminal behavior
@@ -134,7 +136,7 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 | `Tool "read" conflicts with …` at startup | Two hashline providers are loaded. This is Pi's own diagnostic and it does not block startup, so the session still runs. Remove the standalone `pi-hashline-edit-pro` entry from `packages`. |
 | Per-call `Read(path)` rows appear next to a ledger | A silent hashline tool name is in `tools.passthrough`. Remove it; startup migration normally does this for you. Truncated `replace` / `insert` snippets beside the ledger are expected. |
 | Subagent completion notices are still verbose | `@tintinweb/pi-subagents` is loading before this extension. Pi picks the first registered renderer for a custom message type, so this one has to come first. |
-| `Failed to load extension: ENOENT … prompts/undo-last-replace.md`, or `Cannot find module … /file-type/index.js` | Pi was started **before** a dependency was replaced on disk, and jiti's module-resolution cache lives for the whole process, so `/reload` cannot clear it. The error names a file that only the *previous* version had (`undo-last-replace.md` in hashline 2.6.1; the root `index.js` entry in file-type 21.3.4). **Restart Pi** — a new process resolves everything correctly. `npm run cache:clear` also drops the jiti disk cache, but it is not a substitute for the restart. |
+| `Failed to load extension: ENOENT … prompts/undo-last-replace.md`, or `Cannot find module … /file-type/index.js` | Pi was started **before** a dependency was replaced on disk. jiti's module-resolution cache lives for the whole process, so `/reload` cannot clear it. The error names a file that only the *previous* version had (`undo-last-replace.md` in hashline 2.6.1; the root `index.js` entry in file-type 21.3.4). **Restart Pi** — a new process resolves everything correctly. |
 | Nothing looks different | Run `/reload`. If it still looks unchanged, confirm the config file exists and that only one package is installed. |
 
 ## Install
@@ -252,7 +254,7 @@ npm run typecheck
 npm test
 ```
 
-Then reload Pi.
+Then restart Pi. `/reload` is not enough after a hashline bump.
 
 ## Requirements
 
