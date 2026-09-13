@@ -96,10 +96,14 @@ function editTarget(
   const to = stringField(record, "remove_to");
   const anchor = stringField(record, "anchor");
   // 自己查 hashline 会话注册表，不赌原 renderCall 把 resolvedPath 写回来。
+  // replace 执行后会释放旧锚点，标题还会再画一次，所以第一次查到就要写进 state。
   const owned =
     (from ? tryResolveEditTarget(from, to) : undefined) ??
     (anchor ? tryResolveEditTarget(anchor) : undefined);
   if (owned) {
+    if (context?.state) {
+      context.state.resolvedPath = owned;
+    }
     return toDisplayPath(owned, context?.cwd);
   }
   if (from && to) {
@@ -226,6 +230,14 @@ export function formatCompactEditCall(
   return `${title(theme, toolName)} ${targetText}`;
 }
 
+/**
+ * 完成态结果末尾留一行空，让后面的助手正文跟 diff 分开。
+ * 不要用 Text paddingY：那会把标题和 diff 也撕开。
+ */
+function withTrailingGap(text: string): string {
+  return text.endsWith("\n") ? text : `${text}\n`;
+}
+
 export function formatCompactEditResult(
   toolName: string,
   args: unknown,
@@ -249,14 +261,14 @@ export function formatCompactEditResult(
     context?.isError === true || asRecord(result)?.isError === true;
   if (isError) {
     const message = resultText(result)?.trim();
-    return paint(theme, "error", message || "Edit failed.");
+    return withTrailingGap(paint(theme, "error", message || "Edit failed."));
   }
 
   const diff = details && typeof details.diff === "string" ? details.diff : "";
   const { shown, hidden } =
     diff.length > 0 ? compactDiffLines(diff) : { shown: [], hidden: 0 };
   if (shown.length === 0) {
-    return stats;
+    return withTrailingGap(stats);
   }
 
   const colored = shown.map((line) => {
@@ -271,9 +283,9 @@ export function formatCompactEditResult(
   if (hidden > 0) {
     colored.push(paint(theme, "muted", `... ${hidden} more`));
   }
-  return stats.length > 0
-    ? `${stats}\n${colored.join("\n")}`
-    : colored.join("\n");
+  const body =
+    stats.length > 0 ? `${stats}\n${colored.join("\n")}` : colored.join("\n");
+  return withTrailingGap(body);
 }
 
 function textResult(content: string): Text {

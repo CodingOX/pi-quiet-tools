@@ -10,6 +10,7 @@ import {
 } from "./compact-edit-ui.ts";
 import {
   allocateAnchor,
+  freeAnchors,
   initRegistry,
   resetRegistryForTests,
 } from "pi-hashline-edit-pro/src/anchor-registry.ts";
@@ -151,6 +152,28 @@ test("call line uses owned hashline anchors as the file path", async () => {
   }
 });
 
+test("call line keeps the file after replace frees the old anchors", async () => {
+  resetRegistryForTests();
+  await initRegistry(undefined);
+  try {
+    const from = allocateAnchor("/repo/demo.md", "checksum-from");
+    const to = allocateAnchor("/repo/demo.md", "checksum-to");
+    const state: { resolvedPath?: string } = {};
+    const args = { remove_from: from, remove_to: to };
+    assert.equal(
+      formatCompactEditCall("replace", args, undefined, { cwd: "/repo", state }),
+      "replace demo.md",
+    );
+    freeAnchors("/repo/demo.md");
+    assert.equal(
+      formatCompactEditCall("replace", args, undefined, { cwd: "/repo", state }),
+      "replace demo.md",
+    );
+  } finally {
+    resetRegistryForTests();
+  }
+});
+
 test("call line shows cwd-relative file, never an absolute dump", () => {
   assert.equal(
     formatCompactEditCall(
@@ -211,7 +234,33 @@ test("applied result shows stats and truncated diff", () => {
       "+1 -1",
       '-QUIET_UI_PASSTHROUGH_KEEP = ["Agent"]',
       '+QUIET_UI_PASSTHROUGH_KEEP = ["Agent", "replace"]',
+      "",
     ].join("\n"),
+  );
+});
+
+test("completed replace result leaves a blank row before following text", () => {
+  const text = formatCompactEditResult(
+    "replace",
+    { path: "a.ts" },
+    {
+      details: {
+        diff: ["-Ab12│old", "+Cd34│new"].join("\n"),
+        metrics: { added_lines: 1, removed_lines: 1 },
+      },
+    },
+  );
+  const lines = text.split("\n");
+  assert.equal(lines.at(-1), "");
+  assert.equal(lines.at(-2), "+new");
+  assert.equal(
+    formatCompactEditResult(
+      "replace",
+      { path: "a.ts" },
+      { details: { diff: "+Ab12│secret" } },
+      { isPartial: true },
+    ),
+    "Editing...",
   );
 });
 
@@ -222,7 +271,7 @@ test("noop edits stay on the header", () => {
       { path: "a.ts" },
       { details: { metrics: { classification: "noop" } } },
     ),
-    "noop",
+    "noop\n",
   );
 });
 
@@ -237,7 +286,7 @@ test("errors show the message instead of a diff", () => {
         details: { diff: "+Ab12│should not appear" },
       },
     ),
-    "anchor not found",
+    "anchor not found\n",
   );
 });
 
