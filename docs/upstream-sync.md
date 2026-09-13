@@ -190,6 +190,7 @@ git -C vendor/pi-extensions rev-list --left-right --count upstream/main...feat/p
 
 ## Related
 
+- [`local-overlay.md`](./local-overlay.md) — what this repo owns on top of the two upstreams (not a sync plan)
 - [`../CONTEXT.md`](../CONTEXT.md) — the ledger vocabulary these seams depend on
 - [`adr/0001-open-ledger-liveness.md`](./adr/0001-open-ledger-liveness.md) — open elapsed ownership, the seam most exposed by a display-intent sync
 - [`adr/0002-silent-tools-share-open-rows.md`](./adr/0002-silent-tools-share-open-rows.md) — the glue/upstream boundary a display-intent sync would move
