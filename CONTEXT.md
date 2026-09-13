@@ -57,5 +57,9 @@ The maximum remaining work after a watchdog nudge. Whichever limit hits first en
 _Avoid_: timeout
 
 **Hard stop**:
-The state after the grace period. Later tool calls are refused so the UI host must reply with current work and next steps. An already-running tool is not aborted.
+The state after the grace period. Later tool calls are refused so the UI host must reply with current work and next steps. An already-running tool is not aborted. The first official assistant text of a later turn resets this state.
 _Avoid_: kill, abort, cancel
+
+**Official assistant text**:
+Visible assistant Markdown the human can read — not thinking blocks, not GPT-style `<thinking>` tags, not a leftover session-sequence prefix. The first such text in a UI-host turn resets the bash budget and watchdog phase.
+_Avoid_: thinking, tool dump, narration pin

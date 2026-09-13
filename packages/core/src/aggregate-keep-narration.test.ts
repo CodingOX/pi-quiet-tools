@@ -2,10 +2,54 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   appendRecoveredNarration,
+  hasOfficialAssistantText,
   installAggregateKeepNarrationPatch,
   recoverSwallowedNarration,
   removeExpandedNarrationFrame,
 } from "./aggregate-keep-narration.ts";
+
+test("official assistant text ignores thinking and session sequence leftovers", () => {
+  assert.equal(
+    hasOfficialAssistantText({
+      content: [{ type: "text", text: "正在核对检查点" }],
+    }),
+    true,
+  );
+  assert.equal(
+    hasOfficialAssistantText({
+      content: [{ type: "thinking", text: "内部推理" }],
+    }),
+    false,
+  );
+  assert.equal(
+    hasOfficialAssistantText({
+      content: [{ type: "text", text: "<thinking>内部推理</thinking>" }],
+    }),
+    false,
+  );
+  assert.equal(
+    hasOfficialAssistantText({
+      content: [{ type: "text", text: "§191§" }],
+    }),
+    false,
+  );
+  assert.equal(
+    hasOfficialAssistantText({
+      content: [
+        { type: "thinking", text: "内部推理" },
+        { type: "text", text: "§26§ 还差回归" },
+      ],
+    }),
+    true,
+  );
+  assert.equal(
+    hasOfficialAssistantText({
+      role: "user",
+      content: [{ type: "text", text: "用户自己打的字" }],
+    }),
+    false,
+  );
+});
 
 test("recovered narration preserves Pi's leading spacer", () => {
   const lines = recoverSwallowedNarration(

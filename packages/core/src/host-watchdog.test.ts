@@ -56,7 +56,7 @@ test("the bash that trips the budget nudges and still runs", () => {
   assert.equal(watchdog.bashCount(), 2);
 });
 
-test("non-bash calls and assistant text do not reset the bash count", () => {
+test("non-bash calls do not reset the bash count", () => {
   const watchdog = createWatchdog(tight);
   watchdog.onUserRequest(0);
   watchdog.onToolCall("bash", 10);
@@ -67,6 +67,55 @@ test("non-bash calls and assistant text do not reset the bash count", () => {
 
   assert.equal(watchdog.bashCount(), 2);
   assert.equal(watchdog.phase(), "nudged");
+});
+
+test("the first official text of a turn resets bash and leaves grace", () => {
+  const watchdog = createWatchdog(tight);
+  watchdog.onUserRequest(0);
+  watchdog.onToolCall("bash", 10);
+  watchdog.onToolCall("bash", 20);
+  assert.equal(watchdog.phase(), "nudged");
+
+  assert.equal(watchdog.onOfficialText(30), true);
+  assert.equal(watchdog.bashCount(), 0);
+  assert.equal(watchdog.phase(), "running");
+  assert.equal(watchdog.onToolCall("read", 40).block, undefined);
+
+  assert.equal(watchdog.onOfficialText(50), false);
+  watchdog.onToolCall("bash", 60);
+  assert.equal(watchdog.bashCount(), 1);
+  assert.equal(watchdog.phase(), "running");
+});
+
+test("a later turn's official text can reset bash again", () => {
+  const watchdog = createWatchdog(tight);
+  watchdog.onUserRequest(0);
+  watchdog.onToolCall("bash", 10);
+  assert.equal(watchdog.onOfficialText(20), true);
+  watchdog.onToolCall("bash", 30);
+  assert.equal(watchdog.bashCount(), 1);
+
+  watchdog.onTurnStart();
+  assert.equal(watchdog.onOfficialText(40), true);
+  assert.equal(watchdog.bashCount(), 0);
+  assert.equal(watchdog.phase(), "running");
+});
+
+test("official text after hard-stop unblocks later tools", () => {
+  const watchdog = createWatchdog(tight);
+  watchdog.onUserRequest(0);
+  watchdog.onToolCall("bash", 10);
+  watchdog.onToolCall("bash", 20);
+  watchdog.onTurnEnd(30);
+  watchdog.onTurnEnd(40);
+  watchdog.onTurnEnd(50);
+  assert.equal(watchdog.phase(), "hard_stop");
+
+  watchdog.onTurnStart();
+  assert.equal(watchdog.onOfficialText(60), true);
+  assert.equal(watchdog.bashCount(), 0);
+  assert.equal(watchdog.phase(), "running");
+  assert.equal(watchdog.onToolCall("read", 70).block, undefined);
 });
 
 test("the trip turn does not consume a grace turn", () => {
@@ -411,4 +460,60 @@ test("installer child Agent does not pause the host wall clock", async (t) => {
   await emit("tool_call", { toolName: "Agent" }, childCtx());
   mockTimers.tick(tight.requestWallClockMs);
   assert.deepEqual(notices, [NUDGE_NOTIFY]);
+});
+
+test("installer official text resets bash and cancels the grace timer", async (t) => {
+  const mockTimers = t.mock?.timers;
+  if (typeof mockTimers?.enable !== "function") {
+    t.skip("t.mock.timers 在本环境不可用");
+    return;
+  }
+  mockTimers.enable({ apis: ["setTimeout", "Date"] });
+  mockTimers.setTime(0);
+
+  const notices: string[] = [];
+  const { pi, emit } = fakePi();
+  const watchdog = createWatchdog(tight);
+  installHostWatchdog(pi, watchdog);
+  const host = hostCtx((message) => notices.push(message));
+
+  await emit("before_agent_start", {}, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+  assert.deepEqual(notices, [NUDGE_NOTIFY]);
+  assert.equal(watchdog.phase(), "nudged");
+
+  await emit("message_update", {
+    message: {
+      content: [{ type: "text", text: "<thinking>内部推理</thinking>" }],
+    },
+  }, host);
+  assert.equal(watchdog.phase(), "nudged");
+  assert.equal(watchdog.bashCount(), 2);
+
+  await emit("message_update", {
+    message: { content: [{ type: "text", text: "正在收口，还差回归" }] },
+  }, host);
+  assert.equal(watchdog.bashCount(), 0);
+  assert.equal(watchdog.phase(), "running");
+
+  mockTimers.tick(tight.graceMs);
+  const blocked = await emit("tool_call", { toolName: "read" }, host);
+  assert.equal(blocked, undefined);
+  assert.equal(notices.at(-1), NUDGE_NOTIFY);
+});
+
+test("installer child official text does not reset the host bash count", async () => {
+  const { pi, emit } = fakePi();
+  const watchdog = createWatchdog(tight);
+  installHostWatchdog(pi, watchdog);
+  const host = hostCtx(() => {});
+
+  await emit("before_agent_start", {}, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+  await emit("message_update", {
+    message: { content: [{ type: "text", text: "子会话正文" }] },
+  }, childCtx());
+  assert.equal(watchdog.bashCount(), 1);
+  assert.equal(watchdog.phase(), "running");
 });

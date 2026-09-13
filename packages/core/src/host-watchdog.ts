@@ -3,12 +3,14 @@ import type {
   ExtensionAPI,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { hasOfficialAssistantText } from "./aggregate-keep-narration.js";
 
 /**
  * UI-host 看门狗：人正在看的会话里，bash 失控或长时间不收口时，
  * 先 nudge 再宽限，到期拦住后续工具，逼它开口汇报。
  *
- * 不杀正在跑的命令；子会话 (hasUI !== true) 整段跳过。
+ * 可见正文会重置 bash 账和宽限（沉默失控才算）；不杀正在跑的命令。
+ * 子会话 (hasUI !== true) 整段跳过。
  * 硬停只 block、不 terminate —— terminate 会跳过下一轮 LLM，模型就没机会说话。
  */
 
@@ -28,7 +30,7 @@ export const DEFAULT_WATCHDOG_LIMITS: WatchdogLimits = {
 };
 
 export const NUDGE_INSTRUCTION =
-  "【quiet-tools 看门狗】本请求已过长或 bash 过多。用户几乎看不到你的过程。本回合必须先在可见正文（不要写进 thinking）用中文写清：1) 正在做什么；2) 还差哪一步就能收口。写完后可以继续调用工具；宽限结束后将禁止继续调用工具。不要复述工具日志，不要道歉。";
+  "【quiet-tools 看门狗】本请求已过长或 bash 过多。用户几乎看不到你的过程。本回合必须先在可见正文（不要写进 thinking）用中文写清：1) 正在做什么；2) 还差哪一步就能收口。可见正文出现后看门狗会重置；之后若再长时间闷头调工具，会再次进入宽限。不要复述工具日志，不要道歉。";
 
 export const HARD_STOP_INSTRUCTION =
   "【quiet-tools 看门狗】宽限已结束，禁止继续调用工具。立刻用中文可见正文回复（不要 thinking、不要任何工具）：1) 当前做到哪；2) 建议用户下一步做什么。各一两句。不要道歉，不要罗列已调用的工具。";
@@ -67,10 +69,13 @@ export interface HostWatchdog {
   bashCount(): number;
   limits(): WatchdogLimits;
   onUserRequest(nowMs: number): void;
+  onTurnStart(): void;
   onToolCall(toolName: string, nowMs: number): WatchdogToolDecision;
   onTurnEnd(nowMs: number): WatchdogTurnDecision;
   onContext(nowMs: number): WatchdogContextDecision;
   onTick(nowMs: number): WatchdogTurnDecision;
+  /** 本回合第一次可见正文：清 bash、退出宽限/硬停、墙钟从现在重计。 */
+  onOfficialText(nowMs: number): boolean;
   pauseWallClock(nowMs: number): void;
   resumeWallClock(nowMs: number): void;
   remainingRequestMs(nowMs: number): number;
@@ -93,6 +98,8 @@ export function createWatchdog(
   let graceTurns = 0;
   // 绊索发生在某一回合中途；那一回合的 turn_end 不算「再给」的 5 回合。
   let ignoreNextTurnEnd = false;
+  // 每回合第一次正式正文才重置；同一回合后续 text_delta 不再清账。
+  let officialTextResetAvailable = false;
   let lastNotified: WatchdogNotify | undefined;
   // 墙钟冻结：effectiveNow = (pausedAt ?? now) - clockOffset。只在 host 等子代理时用。
   let clockOffsetMs = 0;
@@ -105,6 +112,7 @@ export function createWatchdog(
     graceStartedAtMs = 0;
     graceTurns = 0;
     ignoreNextTurnEnd = false;
+    officialTextResetAvailable = false;
     lastNotified = undefined;
     clockOffsetMs = 0;
     pausedAtMs = undefined;
@@ -171,6 +179,27 @@ export function createWatchdog(
       reset();
       phase = "running";
       startedAtMs = nowMs;
+      officialTextResetAvailable = true;
+    },
+    onTurnStart(): void {
+      if (phase === "idle") {
+        return;
+      }
+      officialTextResetAvailable = true;
+    },
+    onOfficialText(nowMs: number): boolean {
+      if (phase === "idle" || !officialTextResetAvailable) {
+        return false;
+      }
+      officialTextResetAvailable = false;
+      phase = "running";
+      bashCount = 0;
+      startedAtMs = effectiveNow(nowMs);
+      graceStartedAtMs = 0;
+      graceTurns = 0;
+      ignoreNextTurnEnd = false;
+      lastNotified = undefined;
+      return true;
     },
     onToolCall(toolName: string, nowMs: number): WatchdogToolDecision {
       ensureRunning(nowMs);
@@ -439,6 +468,39 @@ export function installHostWatchdog(
     watchdog.onUserRequest(Date.now());
     // 墙钟靠真实定时器推进，不靠 tool_call 轮询 elapsed
     armRequestTimer();
+  });
+
+  function handleVisibleProgress(
+    ctx: ExtensionContext,
+    message: unknown,
+  ): void {
+    if (!isUiHost(ctx) || !hasOfficialAssistantText(message)) {
+      return;
+    }
+    if (!watchdog.onOfficialText(Date.now())) {
+      return;
+    }
+    lastHostCtx = ctx;
+    if (delegateInFlight > 0) {
+      return;
+    }
+    clearTimers();
+    armRequestTimer();
+  }
+
+  pi.on("turn_start", async (_event, ctx) => {
+    if (!isUiHost(ctx)) {
+      return;
+    }
+    watchdog.onTurnStart();
+  });
+
+  pi.on("message_update", async (event, ctx) => {
+    handleVisibleProgress(ctx, event.message);
+  });
+
+  pi.on("message_end", async (event, ctx) => {
+    handleVisibleProgress(ctx, event.message);
   });
 
   pi.on("tool_call", async (event, ctx) => {

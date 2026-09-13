@@ -91,6 +91,15 @@ function messageHasNarrationText(message: unknown): boolean {
   });
 }
 
+/** 人能看见的助手正文：剥掉 thinking / 会话序号之后还有字。 */
+export function hasOfficialAssistantText(message: unknown): boolean {
+  const role = toRecord(message).role;
+  if (role !== undefined && role !== "assistant") {
+    return false;
+  }
+  return messageHasNarrationText(omitThinkingContentBlocks(message));
+}
+
 function isTerminalAssistantMessage(message: unknown): boolean {
   const stopReason = toRecord(message).stopReason;
   return (
