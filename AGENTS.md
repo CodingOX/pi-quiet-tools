@@ -128,7 +128,7 @@ The skill defers to the manual checklist below for what to look at, and adds the
 5. `replace` and `insert` show a truncated +/- snippet (about 6 change lines, stats on the header). `Ctrl+O` restores hashline's native preview. `anchor_grep` stays silent; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
 7. Existing display-intent config: passthrough migration strips silent hashline names (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, `replace`, and `insert`. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
-8. UI host: 80 bash or 30 minutes → nudge; after 5 more turns or 3 minutes, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash, grace, and the request clock. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. Wall-clock caps fire on timers, not only on the next tool event, and pause while host `Agent` / `get_subagent_result` is in flight.
+8. UI host: 80 bash → nudge; after 10 more turns, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash and grace. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. There is no request or grace wall-clock cap.
 
 ## Where hashline tool names live
 

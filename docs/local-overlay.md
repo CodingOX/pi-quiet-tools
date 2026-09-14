@@ -34,8 +34,7 @@ Capabilities that vanilla hashline + standalone display-intent do not ship.
 ### Glue (`packages/core`)
 
 **UI-host watchdog** — `host-watchdog.ts`
-
-Stops a silent bash / wall-clock runaway in the session a human is watching. 80 bash or 30 minutes → nudge; then 5 turns or 3 minutes → later tools are blocked and the model must report current/next work in Chinese. Child sessions (`hasUI !== true`) are exempt. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md).
+Stops a silent bash runaway in the session a human is watching. 80 bash → nudge; then 10 turns → later tools are blocked and the model must report current/next work in Chinese. Waiting on Ask or a child session does not trip it. Child sessions (`hasUI !== true`) are exempt. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md).
 
 **Compact edit preview** — `compact-edit-ui.ts`
 

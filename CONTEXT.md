@@ -49,11 +49,11 @@ The cap on bash calls in one UI-host user request that trips the watchdog nudge.
 _Avoid_: tool budget
 
 **Watchdog nudge**:
-The first intervention after the bash budget or a long wall-clock cap counted from the user request. This clock is not open elapsed, and it freezes while the UI host waits on `Agent` or `get_subagent_result`.
+The first intervention after the bash budget in one UI-host user request. Waiting on the human (Ask) or a child session does not trip it. There is no request wall-clock cap.
 _Avoid_: warning, reminder, progress tool
 
 **Grace period**:
-The maximum remaining work after a watchdog nudge. Whichever limit hits first ends it.
+The remaining LLM tool-calling turns after a watchdog nudge. Turns alone end it; there is no grace wall-clock cap.
 _Avoid_: timeout
 
 **Hard stop**:
