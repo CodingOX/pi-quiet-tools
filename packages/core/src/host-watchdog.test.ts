@@ -5,6 +5,9 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import {
+  CHILD_HARD_STOP_INSTRUCTION,
+  CHILD_NUDGE_INSTRUCTION,
+  CHILD_WATCHDOG_POLICY,
   createWatchdog,
   DEFAULT_WATCHDOG_LIMITS,
   HARD_STOP_INSTRUCTION,
@@ -203,6 +206,39 @@ test("settling the agent run clears watchdog state", () => {
   assert.equal(watchdog.bashCount(), 0);
 });
 
+test("child nudge copy talks to the parent about an incomplete handoff", () => {
+  assert.match(CHILD_NUDGE_INSTRUCTION, /INCOMPLETE/);
+  assert.match(CHILD_NUDGE_INSTRUCTION, /父代理/);
+  assert.match(CHILD_HARD_STOP_INSTRUCTION, /INCOMPLETE/);
+  assert.match(CHILD_HARD_STOP_INSTRUCTION, /父代理/);
+  assert.doesNotMatch(CHILD_NUDGE_INSTRUCTION, /建议用户/);
+  assert.doesNotMatch(CHILD_HARD_STOP_INSTRUCTION, /建议用户/);
+});
+
+test("child policy does not reset on official text and uses incomplete-handoff copy", () => {
+  const watchdog = createWatchdog(tight, CHILD_WATCHDOG_POLICY);
+  watchdog.onUserRequest();
+  watchdog.onToolCall("bash");
+  watchdog.onToolCall("bash");
+  assert.equal(watchdog.phase(), "nudged");
+  assert.equal(watchdog.onOfficialText(), false);
+  assert.equal(watchdog.bashCount(), 2);
+  assert.equal(watchdog.phase(), "nudged");
+  assert.equal(watchdog.onContext().instruction, CHILD_NUDGE_INSTRUCTION);
+
+  watchdog.onTurnEnd();
+  watchdog.onTurnEnd();
+  watchdog.onTurnEnd();
+  const blocked = watchdog.onToolCall("read");
+  assert.equal(blocked.block, true);
+  assert.equal(blocked.reason, CHILD_HARD_STOP_INSTRUCTION);
+  assert.equal("terminate" in blocked, false);
+
+  watchdog.onTurnStart();
+  assert.equal(watchdog.onOfficialText(), false);
+  assert.equal(watchdog.onToolCall("read").block, true);
+});
+
 type Handler = (event: unknown, ctx: ExtensionContext) => unknown;
 
 function fakePi(): {
@@ -244,11 +280,14 @@ function hostCtx(notify: (message: string) => void): ExtensionContext {
   } as unknown as ExtensionContext;
 }
 
-function childCtx(): ExtensionContext {
-  return { hasUI: false } as unknown as ExtensionContext;
+function childCtx(sessionId = "child-1"): ExtensionContext {
+  return {
+    hasUI: false,
+    sessionManager: { getSessionId: () => sessionId },
+  } as unknown as ExtensionContext;
 }
 
-test("installer skips child sessions and does not terminate a hard-stop block", async () => {
+test("installer does not count child bash on the host watchdog or terminate a hard-stop block", async () => {
   const notices: string[] = [];
   const { pi, emit } = fakePi();
   const watchdog: HostWatchdog = createWatchdog(tight);
@@ -365,4 +404,109 @@ test("installer child official text does not reset the host bash count", async (
   );
   assert.equal(watchdog.bashCount(), 1);
   assert.equal(watchdog.phase(), "running");
+});
+
+const goContext = {
+  messages: [{ role: "user" as const, content: "go", timestamp: 1 }],
+};
+
+test("installer child bash budget injects incomplete handoff and does not notify", async () => {
+  const notices: string[] = [];
+  const { pi, emit } = fakePi();
+  const hostWatchdog = createWatchdog(tight);
+  installHostWatchdog(pi, hostWatchdog);
+  const host = hostCtx((message) => notices.push(message));
+  const child = childCtx("child-a");
+
+  await emit("before_agent_start", {}, child);
+  await emit("tool_call", { toolName: "bash" }, child);
+  await emit("tool_call", { toolName: "bash" }, child);
+
+  const context = (await emit("context", goContext, child)) as {
+    messages: Array<{ content: string }>;
+  };
+  assert.equal(context.messages.at(-1)?.content, CHILD_NUDGE_INSTRUCTION);
+  assert.equal(notices.length, 0);
+  assert.equal(hostWatchdog.bashCount(), 0);
+  assert.equal(hostWatchdog.phase(), "idle");
+
+  await emit("before_agent_start", {}, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+  assert.equal(hostWatchdog.bashCount(), 1);
+  assert.equal(hostWatchdog.phase(), "running");
+  assert.equal(notices.length, 0);
+});
+
+test("installer child hard-stop blocks tools with incomplete-handoff copy and no terminate", async () => {
+  const notices: string[] = [];
+  const { pi, emit } = fakePi();
+  installHostWatchdog(pi, createWatchdog(tight));
+  hostCtx((message) => notices.push(message));
+  const child = childCtx("child-stop");
+
+  await emit("before_agent_start", {}, child);
+  await emit("tool_call", { toolName: "bash" }, child);
+  await emit("tool_call", { toolName: "bash" }, child);
+  await emit("turn_end", {}, child);
+  await emit("turn_end", {}, child);
+  await emit("turn_end", {}, child);
+
+  const blocked = await emit("tool_call", { toolName: "read" }, child);
+  assert.deepEqual(blocked, {
+    block: true,
+    reason: CHILD_HARD_STOP_INSTRUCTION,
+  });
+  assert.equal("terminate" in (blocked as object), false);
+  assert.equal(notices.length, 0);
+
+  await emit("turn_start", {}, child);
+  await emit(
+    "message_update",
+    {
+      message: { content: [{ type: "text", text: "INCOMPLETE 交接" }] },
+    },
+    child,
+  );
+  const stillBlocked = await emit("tool_call", { toolName: "read" }, child);
+  assert.deepEqual(stillBlocked, {
+    block: true,
+    reason: CHILD_HARD_STOP_INSTRUCTION,
+  });
+});
+
+test("installer isolates child bash budgets by session id", async () => {
+  const { pi, emit } = fakePi();
+  installHostWatchdog(pi, createWatchdog(tight));
+  const childA = childCtx("session-a");
+  const childB = childCtx("session-b");
+
+  await emit("before_agent_start", {}, childA);
+  await emit("tool_call", { toolName: "bash" }, childA);
+  await emit("tool_call", { toolName: "bash" }, childA);
+  const nudged = (await emit("context", goContext, childA)) as {
+    messages: Array<{ content: string }>;
+  };
+  assert.equal(nudged.messages.at(-1)?.content, CHILD_NUDGE_INSTRUCTION);
+
+  await emit("before_agent_start", {}, childB);
+  await emit("tool_call", { toolName: "bash" }, childB);
+  const quiet = await emit("context", goContext, childB);
+  assert.equal(quiet, undefined);
+});
+
+test("installer child settle does not clear the host bash count", async () => {
+  const { pi, emit } = fakePi();
+  const hostWatchdog = createWatchdog(tight);
+  installHostWatchdog(pi, hostWatchdog);
+  const host = hostCtx(() => {});
+  const child = childCtx("child-settle");
+
+  await emit("before_agent_start", {}, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+  await emit("before_agent_start", {}, child);
+  await emit("tool_call", { toolName: "bash" }, child);
+  await emit("agent_settled", {}, child);
+
+  assert.equal(hostWatchdog.bashCount(), 1);
+  assert.equal(hostWatchdog.phase(), "running");
 });

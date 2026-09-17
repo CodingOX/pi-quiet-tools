@@ -6,12 +6,12 @@ import type {
 import { hasOfficialAssistantText } from "./aggregate-keep-narration.js";
 
 /**
- * UI-host 看门狗：人正在看的会话里，bash 失控时先 nudge 再宽限，
- * 到期拦住后续工具，逼它开口汇报。
+ * 看门狗：人正在看的会话里，bash 失控时先 nudge 再宽限，到期拦住后续工具，逼它开口汇报。
+ * 子会话同一套 80+10，但开口不清零——父代理看不见子会话正文，开口续跑等于没汇报。
+ * 子会话到点是交未完成卷并结束本轮，不是给用户播报。
  *
  * 只数 bash，不数墙钟——Ask / 子代理干等不会自己绊索。
- * 可见正文会重置 bash 账和宽限（沉默失控才算）；不杀正在跑的命令。
- * 子会话 (hasUI !== true) 整段跳过。
+ * 可见正文只重置 UI-host 的 bash 账和宽限；不杀正在跑的命令。
  * 硬停只 block、不 terminate —— terminate 会跳过下一轮 LLM，模型就没机会说话。
  */
 
@@ -25,16 +25,42 @@ export const DEFAULT_WATCHDOG_LIMITS: WatchdogLimits = {
   graceTurns: 10,
 };
 
+export interface WatchdogPolicy {
+  /** host 开口=人看见进度所以清零；child 开口父代理看不见，清零会放它继续闷跑。 */
+  resetOnOfficialText: boolean;
+  nudgeInstruction: string;
+  hardStopInstruction: string;
+}
+
 export const NUDGE_INSTRUCTION =
   "【quiet-tools 看门狗】本请求 bash 过多。用户几乎看不到你的过程。thinking、工具调用和你写给自己的指令，对用户没有意义——他们只能读可见正文，才能知道你在做什么。本回合必须先在可见正文（不要写进 thinking）用中文写清：1) 正在做什么；2) 还差哪一步就能收口。可见正文出现后看门狗会重置；之后若再连续闷头调 bash，会再次进入宽限。不要复述工具日志，不要道歉。";
 
 export const HARD_STOP_INSTRUCTION =
   "【quiet-tools 看门狗】宽限已结束，禁止继续调用工具。立刻用中文可见正文回复（不要 thinking、不要任何工具）：1) 当前做到哪；2) 建议用户下一步做什么。各一两句。不要道歉，不要罗列已调用的工具。";
 
+export const CHILD_NUDGE_INSTRUCTION =
+  "【quiet-tools 看门狗】本请求 bash 过多。你是子代理，父代理正在等你交卷；你写在本会话里的正文他们看不见。立刻停止继续调用工具，用可见正文向父代理交一份未完成交接（不要写进 thinking）：1) 已经完成什么；2) 还没完成什么；3) 建议父代理 resume 你还是自己接着干。第一行写 INCOMPLETE。不要道歉，不要复述工具日志。";
+
+export const CHILD_HARD_STOP_INSTRUCTION =
+  "【quiet-tools 看门狗】宽限已结束，禁止继续调用工具。立刻只用可见正文向父代理交未完成交接（不要 thinking、不要任何工具）：1) 已经完成什么；2) 还没完成什么；3) 建议父代理下一步。第一行写 INCOMPLETE。不要道歉。";
+
+export const HOST_WATCHDOG_POLICY: WatchdogPolicy = {
+  resetOnOfficialText: true,
+  nudgeInstruction: NUDGE_INSTRUCTION,
+  hardStopInstruction: HARD_STOP_INSTRUCTION,
+};
+
+export const CHILD_WATCHDOG_POLICY: WatchdogPolicy = {
+  resetOnOfficialText: false,
+  nudgeInstruction: CHILD_NUDGE_INSTRUCTION,
+  hardStopInstruction: CHILD_HARD_STOP_INSTRUCTION,
+};
+
 export const NUDGE_NOTIFY = "看门狗：进入宽限，请尽快收口";
 export const HARD_STOP_NOTIFY = "看门狗：已禁止继续调用工具";
 
 const WATCHDOG_INSTALL_KEY = Symbol.for("pi-quiet-tools.host-watchdog.v1");
+const ANONYMOUS_CHILD_KEY = "__anonymous_child__";
 
 export type WatchdogPhase = "idle" | "running" | "nudged" | "hard_stop";
 export type WatchdogNotify = "nudge" | "hard_stop";
@@ -63,7 +89,7 @@ export interface HostWatchdog {
   onToolCall(toolName: string): WatchdogToolDecision;
   onTurnEnd(): WatchdogTurnDecision;
   onContext(): WatchdogContextDecision;
-  /** 本回合第一次可见正文：清 bash、退出宽限/硬停。 */
+  /** 本回合第一次可见正文：host 清 bash、退出宽限/硬停；child 故意不清。 */
   onOfficialText(): boolean;
   onSettled(): void;
 }
@@ -74,6 +100,7 @@ interface PiWithWatchdog extends ExtensionAPI {
 
 export function createWatchdog(
   limits: WatchdogLimits = DEFAULT_WATCHDOG_LIMITS,
+  policy: WatchdogPolicy = HOST_WATCHDOG_POLICY,
 ): HostWatchdog {
   let phase: WatchdogPhase = "idle";
   let bashCount = 0;
@@ -150,6 +177,10 @@ export function createWatchdog(
       officialTextResetAvailable = true;
     },
     onOfficialText(): boolean {
+      // 子会话正文到不了父代理；清零等于放它继续闷跑。
+      if (!policy.resetOnOfficialText) {
+        return false;
+      }
       if (phase === "idle" || !officialTextResetAvailable) {
         return false;
       }
@@ -174,7 +205,7 @@ export function createWatchdog(
       }
       if (phase === "hard_stop") {
         decision.block = true;
-        decision.reason = HARD_STOP_INSTRUCTION;
+        decision.reason = policy.hardStopInstruction;
       }
       return decision;
     },
@@ -205,9 +236,9 @@ export function createWatchdog(
         decision.notify = notify;
       }
       if (phase === "nudged") {
-        decision.instruction = NUDGE_INSTRUCTION;
+        decision.instruction = policy.nudgeInstruction;
       } else if (phase === "hard_stop") {
-        decision.instruction = HARD_STOP_INSTRUCTION;
+        decision.instruction = policy.hardStopInstruction;
       }
       return decision;
     },
@@ -219,6 +250,15 @@ export function createWatchdog(
 
 function isUiHost(ctx: ExtensionContext | undefined): boolean {
   return ctx?.hasUI === true;
+}
+
+function childSessionKey(ctx: ExtensionContext): string {
+  const id = ctx.sessionManager?.getSessionId?.();
+  if (typeof id === "string" && id.length > 0) {
+    return id;
+  }
+  // 没有 session id 时宁可用一只匿名账本，也不要每条事件新建一只（永远绊不到）。
+  return ANONYMOUS_CHILD_KEY;
 }
 
 function announce(
@@ -249,7 +289,7 @@ function injectInstruction(
 
 export function installHostWatchdog(
   pi: ExtensionAPI,
-  watchdog: HostWatchdog = createWatchdog(),
+  hostWatchdog: HostWatchdog = createWatchdog(),
 ): void {
   const target = pi as PiWithWatchdog;
   if (target[WATCHDOG_INSTALL_KEY]) {
@@ -257,28 +297,54 @@ export function installHostWatchdog(
   }
   target[WATCHDOG_INSTALL_KEY] = true;
 
-  pi.on("before_agent_start", async (_event, ctx) => {
-    if (!isUiHost(ctx)) {
-      return;
+  // 同一 runtime 上 host / 多个 child 事件会打到同一只 pi；按会话拆账，绝不混算。
+  const childWatchdogs = new Map<string, HostWatchdog>();
+
+  function childWatchdog(ctx: ExtensionContext): HostWatchdog {
+    const key = childSessionKey(ctx);
+    const existing = childWatchdogs.get(key);
+    if (existing) {
+      return existing;
     }
-    watchdog.onUserRequest();
+    const created = createWatchdog(hostWatchdog.limits(), CHILD_WATCHDOG_POLICY);
+    childWatchdogs.set(key, created);
+    return created;
+  }
+
+  function watchdogFor(
+    ctx: ExtensionContext | undefined,
+  ): HostWatchdog | undefined {
+    if (!ctx) {
+      return undefined;
+    }
+    if (isUiHost(ctx)) {
+      return hostWatchdog;
+    }
+    return childWatchdog(ctx);
+  }
+
+  function dropChild(ctx: ExtensionContext): void {
+    const key = childSessionKey(ctx);
+    childWatchdogs.get(key)?.onSettled();
+    childWatchdogs.delete(key);
+  }
+
+  pi.on("before_agent_start", async (_event, ctx) => {
+    watchdogFor(ctx)?.onUserRequest();
   });
 
   function handleVisibleProgress(
     ctx: ExtensionContext,
     message: unknown,
   ): void {
-    if (!isUiHost(ctx) || !hasOfficialAssistantText(message)) {
+    if (!hasOfficialAssistantText(message)) {
       return;
     }
-    watchdog.onOfficialText();
+    watchdogFor(ctx)?.onOfficialText();
   }
 
   pi.on("turn_start", async (_event, ctx) => {
-    if (!isUiHost(ctx)) {
-      return;
-    }
-    watchdog.onTurnStart();
+    watchdogFor(ctx)?.onTurnStart();
   });
 
   pi.on("message_update", async (event, ctx) => {
@@ -290,7 +356,8 @@ export function installHostWatchdog(
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (!isUiHost(ctx)) {
+    const watchdog = watchdogFor(ctx);
+    if (!watchdog) {
       return;
     }
     const decision = watchdog.onToolCall(event.toolName);
@@ -301,14 +368,16 @@ export function installHostWatchdog(
   });
 
   pi.on("turn_end", async (_event, ctx) => {
-    if (!isUiHost(ctx)) {
+    const watchdog = watchdogFor(ctx);
+    if (!watchdog) {
       return;
     }
     announce(ctx, watchdog.onTurnEnd().notify);
   });
 
   pi.on("context", async (event, ctx) => {
-    if (!isUiHost(ctx)) {
+    const watchdog = watchdogFor(ctx);
+    if (!watchdog) {
       return;
     }
     const decision = watchdog.onContext();
@@ -327,14 +396,26 @@ export function installHostWatchdog(
 
   // 请求真正结束才清零。compaction / retry 走 agent_start，不会进这里。
   pi.on("agent_settled", async (_event, ctx) => {
-    if (!isUiHost(ctx)) {
+    if (!ctx) {
       return;
     }
-    watchdog.onSettled();
+    if (isUiHost(ctx)) {
+      hostWatchdog.onSettled();
+      return;
+    }
+    dropChild(ctx);
   });
 
-  // runtime 拆掉时无条件释放；不看 hasUI，避免 host 标记丢失时把计数带到下一会话。
-  pi.on("session_shutdown", async () => {
-    watchdog.onSettled();
+  // runtime 拆掉时释放。host 停机清全部；child 只丢自己那本账。
+  pi.on("session_shutdown", async (_event, ctx) => {
+    if (ctx && !isUiHost(ctx)) {
+      dropChild(ctx);
+      return;
+    }
+    hostWatchdog.onSettled();
+    for (const child of childWatchdogs.values()) {
+      child.onSettled();
+    }
+    childWatchdogs.clear();
   });
 }
