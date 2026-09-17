@@ -21,7 +21,7 @@ The at-most-three tool rows under an open Tools ledger. Pending and running call
 _Avoid_: live current tool, live tail, recent tools, active window, retained rows
 
 **Silent tool**:
-`read`, `undo_last_change`, and `anchor_grep` — plus the retired `undo_last_replace`. They share Open rows with other aggregated tools instead of keeping a private live pin. The set is `HASHLINE_SILENT_TOOL_NAME_SET` in `packages/core/src/hashline-tools.ts`.
+`read`, `undo_last_change`, and `anchor_grep` — plus the retired `undo_last_replace`. They share Open rows with other aggregated tools instead of keeping a private live pin. The set is `HASHLINE_SILENT_TOOL_NAME_SET` in `src/hashline-tools.ts`.
 _Avoid_: hidden tool, quiet tool
 
 **Visible edit tool**:

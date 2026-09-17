@@ -12,11 +12,18 @@ A single Pi extension package that makes the terminal quieter without taking any
 | --- | --- |
 | [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | Hash-anchored `read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` for the model |
 | [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | Tool renderers, result compaction, diffs, custom/MCP tool decoration, and Tools ledgers |
-| `packages/core` | Load order, duplicate guards, quiet renderers, narration handling, and compact subagent notifications |
+| `src` | Load order, duplicate guards, quiet renderers, narration handling, and compact subagent notifications |
 
-`vendor/pi-extensions` is a git submodule pinned to a fork of the display-intent repository. Display-intent feature work belongs in that submodule; the parent package stays thin glue.
+Two extra packages ship with the bundle. They are bundled as real files, so a single install covers them, but each can also be published and installed alone:
 
-Install this repository as **one** extension. Do not also install `pi-hashline-edit-pro` or `@zhcsyncer/pi-tool-display-intent` — Pi would register the same tools twice.
+| Standalone package | Responsibility |
+| --- | --- |
+| `@pi-quiet-tools/watchdog` | Bash runaway gate. Nudges after 80 bash calls, then blocks later tools so the model has to speak. |
+| `@pi-quiet-tools/notify` | Compresses subagent completion notices to one status line. |
+
+Both upstream layers are **vendored in this repository** rather than resolved from npm. `vendor/hashline` is a read-only mirror of `pi-hashline-edit-pro`; `vendor/display-intent` is a fork of `@zhcsyncer/pi-tool-display-intent` that carries local-only work. See [`vendor/README.md`](./vendor/README.md) and [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md).
+
+Install this repository as **one** extension. Do not also install `pi-hashline-edit-pro`, `@zhcsyncer/pi-tool-display-intent`, `@pi-quiet-tools/watchdog`, or `@pi-quiet-tools/notify` — the first two would register the same tools twice, and the last two would double-register their event handlers.
 
 ## The quiet contract
 
@@ -46,9 +53,9 @@ With the default `pi-quiet-tools` seed configuration:
 I'll inspect the current glue layer first.
 
 ◐ Tools (4 calls · 2 turns) · 7s · read ×3 · bash ×1
-  ◐ Read(packages/core/index.ts)
-  ✓ Read(packages/core/src/config-seed.ts)
-  ✓ Read(packages/core/src/aggregate-silent-tools.ts)
+  ◐ Read(index.ts)
+  ✓ Read(src/config-seed.ts)
+  ✓ Read(src/aggregate-silent-tools.ts)
 
 ✓ Tools (9 calls · 3 turns) · read ×9
   took 12s · tok ↑18.2k ↓1.4k · at 14:32
@@ -147,7 +154,9 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 pi install git:github.com/CodingOX/pi-quiet-tools
 ```
 
-The `https://github.com/CodingOX/pi-quiet-tools` form works the same way. The repository runs `scripts/init-submodule.sh` as its `preinstall` step, so the `vendor/pi-extensions` submodule is cloned and checked out at the pinned commit as part of the install — you do not need `--recurse-submodules`.
+The `https://github.com/CodingOX/pi-quiet-tools` form works the same way.
+
+There is no submodule and no `preinstall` hook. Every third-party layer is committed in `vendor/`, so a plain clone is complete — `--recurse-submodules` is neither needed nor meaningful.
 
 `github:CodingOX/pi-quiet-tools` is **not** a Pi package source; Pi only recognizes the `git:` prefix or a protocol URL.
 
@@ -159,7 +168,6 @@ The `https://github.com/CodingOX/pi-quiet-tools` form works the same way. The re
 ```bash
 git clone git@github.com:CodingOX/pi-quiet-tools.git
 cd pi-quiet-tools
-npm run submodule:init
 npm install
 pi install /absolute/path/to/pi-quiet-tools
 ```
@@ -177,7 +185,7 @@ pi remove npm:@zhcsyncer/pi-tool-display-intent
 
 ### Updating
 
-`pi update` refetches this repository and re-runs its install, which re-initializes the submodule at the commit pinned by the new revision. The submodule's own branch is not tracked — you get exactly the SHA committed here.
+`pi update` refetches this repository and re-runs its install. You get exactly the vendored code committed on the revision it checks out — there is no nested channel that could drift on its own.
 
 For a local checkout, pull and reinstall:
 
@@ -213,41 +221,34 @@ Existing configuration is not overwritten. Startup migration strips silent hashl
 
 ## Load order and safeguards
 
-`packages/core/index.ts` installs the pieces in this order:
+`index.ts` installs the pieces in this order:
 
 1. Seed or migrate display-intent configuration before importing the upstream module.
-2. Install the `registerTool` hook and compact subagent notification renderer.
-3. Load display-intent once, unless it is already active in the current Pi runtime.
-4. Load hashline unconditionally. At extension-load time `pi.getAllTools()` throws, so the glue cannot probe whether hashline is already registered — see Troubleshooting for what actually catches a double install.
-5. Apply minimal hashline renderers and the aggregate silent-tool/narration patches.
-6. Refresh aggregate patches at `session_start` and `before_agent_start`.
+2. Install the `registerTool` hook.
+3. Install the watchdog and the compact subagent notification renderer (both from their own packages).
+4. Load display-intent once, unless it is already active in the current Pi runtime.
+5. Load hashline unconditionally. At extension-load time `pi.getAllTools()` throws, so the glue cannot probe whether hashline is already registered — see Troubleshooting for what actually catches a double install.
+6. Apply minimal hashline renderers and the aggregate silent-tool/narration patches.
+7. Refresh aggregate patches at `session_start` and `before_agent_start`.
 
 Each display-intent runtime releases its prototype ownership, tool decorations, aggregate projection, and global state on `session_shutdown`. This matters for `/reload`, `/new`, `/resume`, `/fork`, and in-process child-agent lifecycles: one runtime cannot retain or overwrite another runtime's display state.
 
 ## Upstream updates
 
-Read [`docs/upstream-sync.md`](./docs/upstream-sync.md) first. Both dependencies are pinned deliberately, and a sync can fail silently in ways the terminal will not report.
-Held in the `vendor/pi-extensions` submodule:
+Read [`docs/upstream-sync.md`](./docs/upstream-sync.md) first. Both vendored layers are held deliberately, and a sync can fail silently in ways the terminal will not report.
 
 ```bash
-npm run submodule:init
-npm run sync:display-intent
+npm run vendor:pull             # hashline is overwritten; display-intent is only reported
+npm run vendor:pull -- --check  # report only, no writes
 ```
 
-Commit the resulting submodule SHA in this repository, and push the fork branch from the submodule when appropriate:
+> [!IMPORTANT]
+> The two vendored layers are handled differently on purpose. `vendor/hashline` is a pure
+> upstream snapshot, so syncing it is a directory-level overwrite. `vendor/display-intent` is a
+> **fork** carrying local-only work, so the script refuses to touch it — merging upstream there is
+> a manual rebase with three documented silent-failure points.
 
-```bash
-git -C vendor/pi-extensions push origin HEAD
-```
-
-Hashline stays an npm dependency:
-
-```bash
-npm run update:upstream:check
-npm run update:upstream
-```
-
-After an upstream update:
+After a vendor sync:
 
 ```bash
 npm run typecheck
@@ -264,4 +265,5 @@ Then restart Pi. `/reload` is not enough after a hashline bump.
 
 ## License
 
-MIT
+MIT for this repository. The vendored third-party code keeps its own MIT terms and copyright
+holders — see [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md).

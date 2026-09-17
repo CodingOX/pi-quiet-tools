@@ -4,60 +4,61 @@ Guidance for humans and coding agents working in this repository.
 
 ## What this project is
 
-**pi-quiet-tools** is a workspace that ships one Pi extension:
+**pi-quiet-tools** is a monorepo that ships one Pi bundle plus two optional standalone packages.
 
-1. **`packages/core`** (`@pi-quiet-tools/core`) — glue: load order, silent UI, interim Markdown, host/child watchdog.
-2. **`vendor/pi-extensions`** — git submodule of [CodingOX/pi-extensions](https://github.com/CodingOX/pi-extensions), tracking [zhcsyncer/pi-extensions](https://github.com/zhcsyncer/pi-extensions). Display-intent source lives here.
-3. **pi-hashline-edit-pro** — still an npm dependency (execution layer).
+```text
+pi-quiet-tools/                 root = THE published unit (main package)
+├── index.ts                    Pi entry: load order is the whole design
+├── src/                        glue — display policy, silent renderers, schema lock
+├── config/                     first-run display-intent seed
+├── packages/watchdog/          standalone package — bash runaway gate
+├── packages/notify/            standalone package — compact subagent notices
+└── vendor/                     third-party source, see vendor/README.md
+    ├── hashline/               read-only mirror of pi-hashline-edit-pro
+    └── display-intent/         FORK of pi-tool-display-intent (has local-only work)
+```
 
 Design goal: **minimal terminal noise**. Users should see small per-turn tool counts, truncated edit diffs, mid-turn assistant Markdown, and the final answer — not per-call file reads or hashline anchors.
 
-Do not copy upstream files into `packages/core`. Display-intent changes go in the submodule (then PR to zhcsyncer). Glue stays thin.
+**One install, everything included.** The root `package.json` declares the two `packages/*` and the two `vendor/*` as `file:` dependencies and lists them under `bundledDependencies`, so `pi install <this repo>` lands all four in `node_modules/`. Users never install the pieces separately.
 
-What this repo added, changed, and optimized on top of the two upstreams is recorded in [`docs/local-overlay.md`](./docs/local-overlay.md). Update that file in the same change when glue or the fork gains, loses, or reclassifies a behaviour. Do not copy that inventory into this file, `CONTEXT.md`, or the README.
+What this repo added, changed, and optimized on top of upstream is recorded in [`docs/local-overlay.md`](./docs/local-overlay.md). Update that file in the same change when the overlay gains, loses, or reclassifies a behaviour. Do not copy that inventory into this file, `CONTEXT.md`, or the README.
 
 | Need | Read |
 | --- | --- |
 | Shared vocabulary | `CONTEXT.md` |
 | Why a behaviour exists | `docs/adr/` |
 | Overlay vs upstream | `docs/local-overlay.md` |
-| Pins and sync landmines | `docs/upstream-sync.md` |
+| Upstream versions, fork cost, sync landmines | `docs/upstream-sync.md` |
+| Rules for `vendor/` | `vendor/README.md` |
+| Licensing of bundled third-party code | `THIRD-PARTY-NOTICES.md` |
 | How to work here | this file |
 
 ## Architecture
 
 ```text
-pi-quiet-tools/
-  packages/core/                 Pi extension entry (glue)
-  vendor/pi-extensions/          submodule → CodingOX fork (upstream remote = zhcsyncer)
-  package.json                   workspace root; pi.extensions → packages/core/index.ts
-
-packages/core/index.ts
-  ├─ config-seed.ts              First-run default config + passthrough migration
-  ├─ register-tool-hook.ts       Wrap registerTool; silent read/search, compact replace/insert
-  ├─ compact-edit-ui.ts          Truncated +/- preview for visible edits
-  ├─ quiet-subagent-notifications.ts  Compress subagent completion notifications
-  ├─ host-watchdog.ts            bash runaway gate (UI host + child sessions)
-  ├─ aggregate-silent-tools.ts   Swallow non-ledger silent renders; collapsed ledger passes through
-  ├─ aggregate-keep-narration.ts Keep interim assistant Markdown
-  ├─ upstream-loader.ts          display-intent duplicate guard (hashline guard removed — see below)
-  └─ imports + invokes in order:
-       1. installRegisterToolHook
-       2. installQuietSubagentNotificationRenderer
-       3. installHostWatchdog
-       4. toolDisplayIntentExtension(pi)
-       5. hashlineExtension(pi)   (unconditional)
-       6. applyMinimalUiToHashlineTools
-       7. installAggregateUiPatches
+index.ts  (Pi entry — order below is a contract, not a preference)
+  ├─ src/config-seed.ts                 First-run default config + passthrough migration
+  ├─ @pi-quiet-tools/watchdog           bash runaway gate (UI host + child sessions)
+  ├─ @pi-quiet-tools/notify             Compress subagent completion notifications
+  ├─ src/register-tool-hook.ts          Wrap registerTool; silent read/search, compact replace/insert
+  ├─ src/compact-edit-ui.ts             Truncated +/- preview for visible edits
+  ├─ src/hashline-edit-schema.ts        Lock the model-facing edit schema
+  ├─ src/aggregate-silent-tools.ts      Swallow non-ledger silent renders; collapsed ledger passes through
+  ├─ src/aggregate-keep-narration.ts    Keep interim assistant Markdown
+  ├─ src/upstream-loader.ts             display-intent duplicate guard
+  └─ src/hashline-tools.ts              Single source of truth for hashline tool names
 ```
+
+`packages/watchdog/src/assistant-text.ts` is a pure, Pi-free module. It exists so the watchdog does **not** import `src/aggregate-keep-narration.ts` — that module is a display-intent patch, and depending on it would drag the watchdog back into the display layer. Both the watchdog and the glue read narration predicates from `assistant-text.ts`.
 
 ### Critical invariants
 
-1. **Single extension entry** — Root `package.json` lists `./packages/core/index.ts` under `pi.extensions`. Do not add hashline or display-intent to the user's Pi `packages` list separately.
+1. **One extension entry** — Root `package.json` lists only `./index.ts` under `pi.extensions`. Do not add hashline or display-intent to the user's Pi `packages` list separately.
 
-2. **No double hashline** — Glue calls `hashlineExtension` unconditionally, because at extension-load time `pi.getAllTools()` throws (`notInitialized`) so the status cannot be probed. The protections are external: Pi dedupes extensions by path, a genuine double install surfaces as a non-fatal `Tool "read" conflicts with ...` diagnostic, and README/AGENTS forbid installing hashline standalone. Do **not** reintroduce a `getAllTools()` guard — the reasoning lives in `packages/core/src/upstream-loader.ts`.
+2. **No double hashline** — Glue calls `hashlineExtension` unconditionally, because at extension-load time `pi.getAllTools()` throws (`notInitialized`) so the status cannot be probed. The protections are external: Pi dedupes extensions by path, a genuine double install surfaces as a non-fatal `Tool "read" conflicts with ...` diagnostic, and README/AGENTS forbid installing hashline standalone. Do **not** reintroduce a `getAllTools()` guard — the reasoning lives in `src/upstream-loader.ts`.
 
-3. **Load order is load-bearing** — display-intent and hashline both register tools from the *same* extension factory, so Pi sees no conflict and the later registration wins the name. display-intent re-registers the builtins (`read`, `grep`, `find`, `ls`, `write`, `bash`) with builtin descriptions; hashline then registers its own `read` that returns `anchor│content`. Swapping steps 4 and 5 makes the model silently receive un-anchored file content while `read` still looks normal — no error anywhere. `tests/hashline-contract.test.ts` locks the order.
+3. **Load order is load-bearing** — display-intent and hashline both register tools from the *same* extension factory, so Pi sees no conflict and the later registration wins the name. display-intent re-registers the builtins (`read`, `grep`, `find`, `ls`, `write`, `bash`) with builtin descriptions; hashline then registers its own `read` that returns `anchor│content`. Swapping them makes the model silently receive un-anchored file content while `read` still looks normal — no error anywhere. `tests/hashline-contract.test.ts` locks the order.
 
 4. **Passthrough vs aggregate** — Putting `read` in display-intent `tools.passthrough` causes **individual Read rows** in the UI. Default passthrough is `Agent`, `replace`, `insert`, and leftover `edit`. Glue migrates away silent hashline names (`read`, `undo_last_change`, `anchor_grep`, retired `undo_last_replace`) and restores the visible-edit names so truncated diffs can actually paint.
 
@@ -65,52 +66,59 @@ packages/core/index.ts
 
 6. **Aggregate patch timing** — `installAggregateSilentToolsPatch` runs on load and on `session_start` / `before_agent_start`, after display-intent installs its aggregate prototype patch.
 
-7. **Submodule, not vendored files** — `vendor/pi-extensions` is a git submodule. Parent repo commits the SHA only. Display-intent code is pushed on the fork, not flattened into core.
+7. **`vendor/hashline` is a read-only mirror; `vendor/display-intent` is NOT.** The mirror is a pure upstream snapshot: syncing it is a directory-level overwrite with zero conflict surface. The display-intent copy carries local-only work (per-turn ledger layout, open-ledger tick, per-runtime owner lifecycle), so overwriting it **silently destroys that work**. `scripts/vendor-pull.sh` enforces this asymmetry: it overwrites hashline and only *reports* on display-intent.
 
-## What to change vs what not to change
-
-| Do in `packages/core` | Do in `vendor/pi-extensions` | Do on npm |
-| --- | --- | --- |
-| Load order, duplicate guards, silent UI patches | Hashline is not here | Hashline releases |
-| Default display-intent config / migration | display-intent features, new layouts | — |
-| Workspace scripts | Fork PRs back to zhcsyncer | — |
-
-Avoid editing files under `node_modules/`.
+8. **The pieces are bundled, not co-installed.** `packages/watchdog` and `packages/notify` are reachable both as bundle members and as standalone installs. Installing both the bundle *and* a standalone copy is not deduped by Pi (different paths) — see the handover notes in each package's `src/index.ts`.
 
 ## Dependencies
 
-- `@zhcsyncer/pi-tool-display-intent` → `file:../../vendor/pi-extensions/packages/pi-tool-display-intent`
-- `pi-hashline-edit-pro` → npm, **pinned exactly** (`4.2.5`). Never widen this to a `^` range: at the previous pin, `^2.6.1` resolved to 2.8.4, which had already renamed `undo_last_replace` to `undo_last_change`, so a plain `npm update` silently broke the glue. See `docs/upstream-sync.md`.
+All four runtime inputs are local `file:` paths resolved inside the repo:
+
+| Dependency | Source | Channel |
+| --- | --- | --- |
+| `@pi-quiet-tools/watchdog` | `packages/watchdog` | workspace + bundled |
+| `@pi-quiet-tools/notify` | `packages/notify` | workspace + bundled |
+| `pi-hashline-edit-pro` | `vendor/hashline` | vendored mirror + bundled |
+| `@zhcsyncer/pi-tool-display-intent` | `vendor/display-intent` | vendored fork + bundled |
+
+> ⚠️ **`file:` is required, not cosmetic.** `bundledDependencies` only picks up dependencies whose targets exist under the package's own `node_modules`. With a semver range, npm resolves a workspace package to a symlink and `npm pack` silently emits a tarball with **no** bundled deps. `file:` gives npm a concrete target to materialise. Verified against npm 11.17.0; re-verify if that changes.
+>
+> ⚠️ **Transitive deps must be declared at the root.** `pi-hashline-edit-pro` needs `diff@^9`, while the dev-only `@earendil-works/pi-coding-agent` needs `diff@8`. npm hoists the *conflicting* version into `vendor/hashline/node_modules/diff`, and `npm pack` then writes it to a path the bundled package cannot reach. Declaring `diff`, `file-type`, and `xxhash-wasm` in the root `dependencies` forces them to the top level where the bundle places them. If a future hashline bump adds a runtime dependency, add it here too — the symptom is a `MODULE_NOT_FOUND` only on a consumer machine, never in this repo.
 
 ```bash
-npm run submodule:init          # clone submodule + add `upstream` remote
-npm run sync:display-intent     # rebase fork branch onto zhcsyncer/main
-npm run update:upstream:check   # show hashline npm + submodule SHA
-npm run update:upstream         # fetch submodule remotes + bump hashline in range
+npm run vendor:pull             # sync vendor/ per its own asymmetry rules
+npm run vendor:pull -- --check  # report only, no writes
 ```
 
-After updates: `npm run typecheck`, then restart Pi (`/reload` is not enough after a hashline bump).
+After a vendor sync: `npm install && npm run typecheck && npm test`, then restart Pi (`/reload` is not enough after a hashline bump).
 
 ## Development
 
 ```bash
-git clone --recurse-submodules git@github.com:CodingOX/pi-quiet-tools.git
+git clone git@github.com:CodingOX/pi-quiet-tools.git
 cd pi-quiet-tools
-npm run submodule:init
 npm install
 npm run typecheck
+npm test
 pi install /absolute/path/to/this/repo
 ```
 
-If you already cloned without submodules: `npm run submodule:init`.
+No submodules, no `preinstall` hook. Cloning without `--recurse-submodules` is fine.
 
-Typecheck uses stub declarations (`packages/core/src/upstream.d.ts`) because upstream TypeScript sources do not typecheck under our strict config.
+Typecheck uses stub declarations (`src/upstream.d.ts`) because the vendored TypeScript sources do not typecheck under our strict config.
 
-**Tests run with their own tsconfig** (`packages/core/src/tsconfig.test.json`, wired into the core `test` script). `tsx` treats a tsconfig's `paths` as a **runtime** resolution map, so a tsc-only stub alias — especially a **subpath** alias such as `pi-hashline-edit-pro/src/edit-common.ts` — makes the real dependency resolve to a `.d.ts` and tests fail with `does not provide an export named ...`. Keep `paths` in sync between `tsconfig.json` and `tsconfig.test.json`; never re-add a subpath alias to the test config.
+**Tests each run under their own tsconfig, and that is load-bearing.** `tsx` treats a tsconfig's `paths` as a **runtime** resolution map. The root `tsconfig.json` needs stub aliases for tsc, and that mapping is poison for tests: a stubbed `pi-hashline-edit-pro` resolves to a `.d.ts`, and the contract test fails with `does not provide an export named 'default'`. So:
+
+| Config | Used by | `paths` |
+| --- | --- | --- |
+| `tsconfig.json` | `npm run typecheck` | stubs, incl. the `src/edit-common.ts` subpath |
+| `tsconfig.test.json` | glue tests | **none** — never re-add a subpath alias |
+| `tests/tsconfig.test.json` | the hashline contract test | **none** — it must load the real vendored upstream |
+| `packages/*/tsconfig.json` + `packages/*/tsconfig.test.json` | per-package gates | **none** — these packages have no upstream stubs |
 
 ## Change closeout gate
 
-Any change to `packages/core`, `vendor/pi-extensions`, the workspace scripts, or the dependency pins is **not done until it has been verified on a reloaded runtime**. Run the `quiet-tools-verify` skill (`.pi/skills/quiet-tools-verify/SKILL.md`) as the closeout pipeline: change inventory → static gate → wiring assertions → user reload → load confirmation → visual walkthrough → closeout verdict.
+Any change to `src/`, `packages/`, `vendor/`, the scripts, or the dependency graph is **not done until it has been verified on a reloaded runtime**. Run the `quiet-tools-verify` skill (`.pi/skills/quiet-tools-verify/SKILL.md`) as the closeout pipeline: change inventory → static gate → wiring assertions → user reload → load confirmation → visual walkthrough → closeout verdict.
 
 Two rules that make that pipeline possible:
 
@@ -121,7 +129,7 @@ The skill defers to the manual checklist below for what to look at, and adds the
 
 ## Testing checklist (manual)
 
-1. Only `pi-quiet-tools` in Pi `packages` — no standalone hashline or display-intent.
+1. Only `pi-quiet-tools` in Pi `packages` — no standalone hashline, display-intent, watchdog, or notify entry.
 2. User prompt triggers multiple `read` calls in one assistant turn → collapsed open ledger shows `Tools (...)` plus up to 3 Open rows (pending/running take slots first; leftover slots are recent done, including silent tools); no hashline per-file bodies. After settle, header + receipt only.
 3. A later assistant turn with more tools gets its **own** Tools ledger after that turn's Markdown, not one block pinned at the bottom.
 4. Mid-turn assistant prose (text before `toolUse`) stays visible as Markdown; thinking stays hidden.
@@ -132,12 +140,15 @@ The skill defers to the manual checklist below for what to look at, and adds the
 
 ## Where hashline tool names live
 
-`packages/core/src/hashline-tools.ts` is the single source of truth for the tool names `pi-hashline-edit-pro` registers, split into silent vs visible-edit. Glue reads those sets for the silent renderer, compact edit UI, passthrough migration, and duplicate-load tests. When upstream renames or adds a tool, edit that one file, classify the new name, and update its tests — do not re-scatter the names.
+`src/hashline-tools.ts` is the single source of truth for the tool names `pi-hashline-edit-pro` registers, split into silent vs visible-edit. Glue reads those sets for the silent renderer, compact edit UI, passthrough migration, and duplicate-load tests. When upstream renames or adds a tool, edit that one file, classify the new name, and update its tests — do not re-scatter the names.
 
 ## Naming
 
-Public name: **pi-quiet-tools** (GitHub repo and Pi install). Workspace package: **`@pi-quiet-tools/core`**.
+Public name: **pi-quiet-tools** (GitHub repo and Pi install). Workspace packages: **`@pi-quiet-tools/watchdog`**, **`@pi-quiet-tools/notify`**.
+
+> ⚠️ The npm name `pi-quiet-tools` is taken by an unrelated package. Publish under a scope, and install via git until that exists:
+> `pi install git:github.com/CodingOX/pi-quiet-tools`
 
 ## Commits
 
-Keep core commits focused. Submodule SHA bumps are separate from glue changes. Display-intent feature work is committed on the fork, then the parent repo updates the SHA.
+Keep glue commits focused, and keep `vendor/` syncs in their own commit — a vendor overwrite is a third-party version change, not a behaviour change of ours. Fork work in `vendor/display-intent` should be described in the commit that lands it, since no upstream sync will carry it forward.

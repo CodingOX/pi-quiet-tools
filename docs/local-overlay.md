@@ -15,15 +15,26 @@ This is not a changelog, not a glossary, and not a sync plan.
 ## Layers
 
 ```text
-pi-quiet-tools
-├── packages/core                 this repo — glue overlay (display + host policy)
-├── vendor/pi-extensions          submodule fork of display-intent (layout/liveness)
-└── pi-hashline-edit-pro          npm pin — execution layer; wrapped, not forked
+pi-quiet-tools                    root = the published unit (main package)
+├── src/                          this repo — glue overlay (display policy)
+├── packages/watchdog/            standalone — bash runaway gate (host + child)
+├── packages/notify/              standalone — compact subagent notices
+└── vendor/
+    ├── hashline/                 read-only mirror — execution layer; wrapped, not changed
+    └── display-intent/           fork — layout/liveness work lives here
 ```
+
+The two `packages/*` and two `vendor/*` are `file:` dependencies of the root package and
+are listed under `bundledDependencies`, so one install lands all four. See
+[`../AGENTS.md`](../AGENTS.md#dependencies) for why `file:` is required rather than cosmetic.
 
 Hashline’s execution contract is unchanged: the model still gets full anchors, `replace` / `insert` semantics, and complete tool results. Quiet-tools only changes what the **terminal** draws, plus a runaway gate for the UI host and for child sessions.
 
-Display-intent feature work belongs in the submodule (then PR to zhcsyncer). Glue stays thin. Do not copy upstream files into `packages/core`.
+Display-intent feature work belongs in `vendor/display-intent`. Glue stays thin. Do not copy upstream files into `src/`.
+
+> ⚠️ The two vendor copies are **not** the same kind of thing. `vendor/hashline` is a pure
+> upstream snapshot; `vendor/display-intent` carries local-only work that no upstream sync will
+> bring forward. `scripts/vendor-pull.sh` encodes that asymmetry.
 
 ---
 
@@ -31,9 +42,9 @@ Display-intent feature work belongs in the submodule (then PR to zhcsyncer). Glu
 
 Capabilities that vanilla hashline + standalone display-intent do not ship.
 
-### Glue (`packages/core`)
+### Glue (`src/`)
 
-**Watchdog** — `host-watchdog.ts`
+**Watchdog** — `packages/watchdog/src/host-watchdog.ts`
 Stops a silent bash runaway. UI host: 80 bash → nudge; then 10 turns → later tools are blocked and the model must report current/next work in Chinese; official text resets the ledger. Child session: same 80+10 on an isolated ledger, but official text does not reset; the child must return an incomplete handoff (`INCOMPLETE`) and settle. Waiting on Ask or a child does not trip the **host**. No UI notify on children. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md) and [ADR 0004](./adr/0004-child-session-watchdog.md).
 
 **Compact edit preview** — `compact-edit-ui.ts`
@@ -44,7 +55,7 @@ Stops a silent bash runaway. UI host: 80 bash → nudge; then 10 turns → later
 
 Hashline’s default schema allows extra properties, so models often send a write-style `path` into `replace` / `insert` and then fail validation. Glue copies the registered schema with `additionalProperties: false` and strips a loose `path` after upstream `prepareArguments`. Execution still uses hashline; only the model-facing contract is tightened.
 
-**Quiet subagent notifications** — `quiet-subagent-notifications.ts`
+**Quiet subagent notifications** — `packages/notify/src/quiet-subagent-notifications.ts`
 
 Compresses subagent completion notices to one status line (must load before `@tintinweb/pi-subagents`). Transcript paths and result-preview metadata are not shown. More aggressive than display-intent 0.10.0’s custom-message fold.
 
@@ -60,7 +71,7 @@ Silent hashline tools (`read`, `undo_last_change`, `anchor_grep`, plus retired `
 
 First-run config is quieter than standalone display-intent: `per-turn`, intent off, `summary` results, passthrough `Agent` / `replace` / `insert` / leftover `edit`. Existing configs are not overwritten; startup migration strips silent hashline names and restores the keep-list.
 
-### Display-intent fork (`vendor/pi-extensions`)
+### Display-intent fork (`vendor/display-intent`)
 
 **`per-turn` layout** — not present on zhcsyncer 0.10.0 (`individual` | `aggregate` only).
 
@@ -74,11 +85,11 @@ Consecutive tool-only assistant messages share one Tools ledger; visible Markdow
 
 Upstream behaviour we deliberately alter, without replacing the upstream package.
 
-**Single extension entry.** Root `package.json` lists only `./packages/core/index.ts`. Users must not also install hashline or display-intent; Pi would register the same tools twice.
+**Single extension entry.** Root `package.json` lists only `./index.ts`. Users must not also install hashline or display-intent; Pi would register the same tools twice.
 
 **Load order is load-bearing.** Glue always runs: registerTool hook → quiet subagent renderer → watchdog → display-intent (unless already active) → hashline (unconditional) → minimal hashline UI → aggregate patches. Display-intent and hashline both re-register `read` from the same factory; the later one wins. Swap them and the model gets un-anchored file content with no error. Locked by `tests/hashline-contract.test.ts`.
 
-**Hashline is called unconditionally.** A `getAllTools()` “already loaded” guard cannot work at extension-load time (`notInitialized`). Protection is external: path dedupe, Pi’s `Tool "read" conflicts with …` diagnostic, and docs that forbid a standalone install. Reasoning lives in `upstream-loader.ts`.
+**Hashline is called unconditionally.** A `getAllTools()` “already loaded” guard cannot work at extension-load time (`notInitialized`). Protection is external: path dedupe, Pi’s `Tool "read" conflicts with …` diagnostic, and docs that forbid a standalone install. Reasoning lives in `src/upstream-loader.ts`.
 
 **Default quiet policy vs standalone display-intent.**
 
@@ -99,18 +110,22 @@ Upstream behaviour we deliberately alter, without replacing the upstream package
 
 Internal shape that makes the overlay cheaper to keep, not a new user-facing feature.
 
-**Hashline names in one module** — `hashline-tools.ts`. Silent set, visible-edit set, passthrough migration, and duplicate-load tests all read it. Upstream rename used to mean hunting four copies. Keep the retired name (`undo_last_replace`) in the matching set so old configs stay quiet.
+**Hashline names in one module** — `src/hashline-tools.ts`. Silent set, visible-edit set, passthrough migration, and duplicate-load tests all read it. Upstream rename used to mean hunting four copies. Keep the retired name (`undo_last_replace`) in the matching set so old configs stay quiet.
 
-**Exact npm pin** — `pi-hashline-edit-pro` is `4.2.5` with no `^`. A previous `^2.6.1` resolved to 2.8.4, which had already renamed `undo_last_replace`, and silently broke the glue.
+**Vendored instead of pinned** — `pi-hashline-edit-pro` now lives in `vendor/hashline` as a read-only mirror, so its version can no longer move under us. The old npm pin was exact (`4.2.5`, no `^`) for the same reason: a previous `^2.6.1` resolved to 2.8.4, which had already renamed `undo_last_replace`, and silently broke the glue.
 
 **Dead duplicate-hashline guard removed.** The old `getAllTools()` check returned false at its only call site. Tests had mocked a working `getAllTools`, so they protected a branch production never reached.
 
 **Display-intent duplicate detection by runtime owner.** `/reload` / `/new` / in-process child sessions must not share one prototype patch. Each runtime releases ownership on `session_shutdown`.
 
 **Unified visible-text helpers** — `terminal-text.ts`. Ledger predicates and narration filters strip ANSI/OSC before matching, so colour and box-drawing do not break `Tools (` detection.
-**Install plumbing** — `preinstall` clones the submodule at the pinned SHA.
+**No install plumbing** — the old `preinstall` hook cloned a submodule and had ~40 lines of defence against npm's `file:` placeholder, symlink-escape, and unexpected-content cases. All of it is gone with the submodule. Cloning without `--recurse-submodules` is now correct.
 
-**Separate tsconfig for tests** — `packages/core/src/tsconfig.test.json`. `tsx` treats a tsconfig's `paths` as a runtime resolution map, so the `tsc` stub alias for a hashline **subpath** made the real dependency resolve to a `.d.ts` and broke `npm test`. Test config keeps package-level stubs only; `paths` must stay in sync with `tsconfig.json`.
+**Root-level runtime deps for vendored transitives.** `pi-hashline-edit-pro` needs `diff@^9` while the dev-only `pi-coding-agent` needs `diff@8`, so npm nested v9 under `vendor/hashline/node_modules`. `npm pack` then wrote it to a path the bundled package could not reach, and only a *consumer* machine would have failed with `MODULE_NOT_FOUND`. Declaring `diff` / `file-type` / `xxhash-wasm` at the root pins them to the top level where the bundle places them. Same trap applies to any future hashline runtime dependency.
+
+**Separate tsconfig per test surface.** `tsx` treats a tsconfig's `paths` as a runtime resolution map, so a `tsc` stub alias makes a real dependency resolve to a `.d.ts`. There are four configs and none of the three test ones may carry `paths`: `tsconfig.test.json` (glue), `tests/tsconfig.test.json` (the hashline contract test, which must load the real vendored upstream), and `packages/*/tsconfig.test.json` (per-package).
+
+Test configs sit at **package roots, never inside `src/`**. A `tsconfig.test.json` in a source directory becomes the nearest config for every file beside it, and the language server picks its `baseUrl` over the package's real one — which is how a file importing a root-hoisted dependency reported `Cannot find module` while `tsc` was green.
 
 **Contract tests** — hashline registers exactly the names glue knows; every hashline prompt file resolves; silent vs visible-edit classification is exhaustive. Wrong name lists fail here instead of leaking rows in the terminal.
 
@@ -118,7 +133,7 @@ Internal shape that makes the overlay cheaper to keep, not a new user-facing fea
 
 ## When you change something
 
-1. Classify it: **glue** (`packages/core`), **fork** (submodule, then PR), or **hashline pin** (npm, exact).
+1. Classify it: **glue** (`src/`), **standalone package** (`packages/*`), **fork work** (`vendor/display-intent`), or **vendor sync** (`vendor/hashline`, via `npm run vendor:pull`).
 2. Update this file in the same change if the overlay gained, lost, or reclassified a behaviour.
 3. If the change is hard to reverse and surprising, add or amend an ADR. Do not copy the rationale into this file.
-4. If the change is a pin, rebase, or silent-failure seam, update `upstream-sync.md` instead of (or in addition to) this file.
+4. If the change is a vendor version move, a fork rebase, or a silent-failure seam, update `upstream-sync.md` instead of (or in addition to) this file.

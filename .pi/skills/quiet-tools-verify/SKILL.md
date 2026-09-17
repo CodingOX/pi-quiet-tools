@@ -1,6 +1,6 @@
 ---
 name: quiet-tools-verify
-description: pi-quiet-tools 改动后的收口核验流水线。改完 packages/core 或 vendor/pi-extensions 里的渲染、账本、看门狗、编辑 UI、hashline 契约、配置迁移之后，用它自上而下跑完「静态门禁 → 运行时接线 → 用户 reload → 落地确认 → 目视引导 → 收口判据」，并让用户按引导核对终端观感。用户说收口、验一下、改完自检、verify、跑一遍核验时使用。
+description: pi-quiet-tools 改动后的收口核验流水线。改完 src/、packages/、vendor/ 里的渲染、账本、看门狗、编辑 UI、hashline 契约、配置迁移或依赖图之后，用它自上而下跑完「静态门禁 → 运行时接线 → 用户 reload → 落地确认 → 目视引导 → 收口判据」，并让用户按引导核对终端观感。用户说收口、验一下、改完自检、verify、跑一遍核验时使用。
 ---
 
 # quiet-tools 改动收口核验
@@ -50,7 +50,7 @@ timeout 60 npm run typecheck
 timeout 60 npm test
 ```
 
-- `npm test` = core 单测（`packages/core/src/*.test.ts`）+ 跨包契约测试（`tests/*.test.ts`）。
+- `npm test` = 胶水单测（`src/*.test.ts`）+ 根级契约测试（`tests/*.test.ts`）+ `watchdog` 包单测 + `notify` 包单测，四段依次跑。
 - 系统若无 `timeout`，退化为直接执行，但必须设好等待上限，不能挂死。
 - 读**失败的具体断言**，不要只看退出码。
 
@@ -64,21 +64,28 @@ timeout 60 npm test
 
 逐条核对：
 
-1. **可达性**：改动是否真的从 `packages/core/index.ts` 的加载链上被走到？给出完整调用链 `index.ts:行 → … → 改动的函数`。
+1. **可达性**：改动是否真的从 `index.ts` 的加载链上被走到？给出完整调用链 `index.ts:行 → … → 改动的函数`。
 2. **注册期 vs 运行期**：改动是在扩展工厂（加载期）生效，还是在事件回调（运行期）生效？加载期无法用 `pi.getAllTools()` 探测状态，别写这种守卫。
 3. **单测测的是行为还是纯函数**：如果只测了纯函数，明确说「该改动没有行为级测试覆盖」，不要拿纯函数绿冒充功能绿。
 4. **不变量仍成立**（对照 `AGENTS.md` 的 Critical invariants，只核与本次改动相关的）：
    - 加载顺序：display-intent 在 hashline **之前**（否则模型静默拿到无锚点内容，无任何报错）。
-   - hashline 工具名清单仍以 `packages/core/src/hashline-tools.ts` 为唯一来源。
+   - hashline 工具名清单仍以 `src/hashline-tools.ts` 为唯一来源。
    - passthrough 默认只含 `Agent` / `replace` / `insert` / 遗留 `edit`；静默名不得回流。
-   - `packages/core/src/config-seed.ts` 仍在 display-intent import **之前**作为副作用执行。
-5. **hashline pin 未松动**：`packages/core/package.json` 中 `pi-hashline-edit-pro` 必须是精确 `4.2.5`，出现 `^` 即判红。
+   - `src/config-seed.ts` 仍在 display-intent import **之前**作为副作用执行。
+5. **hashline 版本可控**：`pi-hashline-edit-pro` 现在是 `vendor/hashline` 里的内嵌镜像（`file:` 依赖），不再有 npm 版本区间可以松动 —— 但仍要核对 `vendor/hashline/package.json` 的 `version` 与 `THIRD-PARTY-NOTICES.md` 里记的版本一致，且 `vendor-pull.sh` 之后工具名分类仍完整。
+
+6. **bundle 契约未破**：根 `package.json` 的四个 `file:` 依赖是否仍在 `bundledDependencies` 里；`diff` / `file-type` / `xxhash-wasm` 这三个「传递依赖需要提根」的声明是否还在 `dependencies`。任何一个被删掉，**本机测试全绿但消费者机器会 `MODULE_NOT_FOUND`** —— 这是本轮改动踩到的真实缺陷，务必核对。
 
 **闸门**：接线不可达 → 停止，报「本次改动不会在运行时生效」+ 原因，请用户裁决，不要自行改架构。
 
 **特别提醒（最近的坑）**：改完 `replace` / `insert` 的**工具 schema**（如收紧 `additionalProperties`、剥离 `path`）后，只跑单测**不足以**证明模型侧不再收到多余字段。这类改动要在阶段 5 用真实一次编辑来确认。
 
-6. **跑测试用的 tsconfig 是否被误改**：`packages/core/src/tsconfig.test.json` 是给 `tsx` 用的运行期配置。`tsx` 会把 tsconfig 的 `paths` 当**运行时**解析表，所以 `tsconfig.json` 里为 `tsc` 准备的 upstream stub 别名（尤其是 `pi-hashline-edit-pro/src/...` 这类**子路径**别名）会让真实依赖被解析成 `.d.ts`，测试随即报 `does not provide an export named ...`。改过 `tsconfig.json` 的 `paths` 就必须同步 `tsconfig.test.json`。
+7. **跑测试用的 tsconfig 是否被误改**：现在有**四个** tsconfig，规则是「`paths` 只许出现在 `tsconfig.json`」。`tsx` 会把 tsconfig 的 `paths` 当**运行时**解析表，所以任何测试配置里出现 stub 别名（尤其是 `pi-hashline-edit-pro/src/...` 这类**子路径**）都会让真实依赖被解析成 `.d.ts`，测试随即报 `does not provide an export named ...`。
+   - `tsconfig.json` → 给 `tsc` 用，**有** stubs（含子路径别名）
+   - `tsconfig.test.json` → 胶水测试，**不得有** `paths`（放在包根，**不要**放 `src/`）
+   - `tests/tsconfig.test.json` → 契约测试，**不得有** `paths`（它必须加载 `vendor/` 里的真实上游）
+   - `packages/*/tsconfig.test.json` → 各包测试，**不得有** `paths`
+   - ⚠️ 测试配置一律放包根：放进 `src/` 会让语言服务把它当成同目录文件的「最近配置」，用它的 `baseUrl` 覆盖包的真实配置，出现「tsc 绿、编辑器红」的假阳性。
 
 ---
 
@@ -100,7 +107,7 @@ timeout 60 npm test
 
 | 选项 | 命令 | 什么时候用 |
 | --- | --- | --- |
-| 重载扩展 | `/reload` | 只改了 `packages/core` 或 submodule 的 TS |
+| 重载扩展 | `/reload` | 只改了 TS 源码（`src/`、`packages/*/src/`、`vendor/*/src/`） |
 | 重启 Pi | 退出后重开 | 动过依赖版本 / 子模块 SHA / `package.json` |
 
 reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
@@ -137,7 +144,7 @@ reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
 
 按本轮**实际改动的观测面**挑选条目，不要无脑全列。每条固定四段式：
 
-```
+```text
 👀 <序号> <一句话标题>
    触发：<让 agent 做什么，或用户按什么键>
    看：<终端哪个位置>
@@ -195,7 +202,7 @@ reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
 
 诚实做法二选一：
 
-- **默认（推荐）**：不加证。只报「看门狗的行为由 `packages/core/src/host-watchdog.test.ts` 覆盖，本轮未做真机触发」，并列出单测锁住的具体断言。
+- **默认（推荐）**：不加证。只报「看门狗的行为由 `src/host-watchdog.test.ts` 覆盖，本轮未做真机触发」，并列出单测锁住的具体断言。
 - **可选真机验证**（**必须用户明确授权**）：把 `DEFAULT_WATCHDOG_LIMITS` 临时调小（如 `bashBudget: 3`），按阶段 3 的流程 reload 后触发，验完**必须还原**并重新 reload。此为可回滚的临时改动，未经授权不得执行。
 
 真机验证时看：
@@ -222,9 +229,9 @@ reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
 
 ### D. 构建与依赖同步（多为提醒项）
 
-**D1**：`packages/core/package.json` 中 hashline 是精确 `4.2.5`（无 `^`）。
-**D2**：若动过 submodule，`git submodule status` 的 SHA 与本次提交一致，且父仓库只提交 SHA。
-**D3**：动过依赖版本 / 子模块 / `package.json` 时，**重启 Pi 才算生效**，`/reload` 不够 —— 这一条必须明确说给用户。
+**D1**：`vendor/hashline/package.json` 的 `version` 与 `THIRD-PARTY-NOTICES.md` 记录的版本一致；根 `package.json` 的四个 `file:` 依赖都在 `bundledDependencies` 里；`diff` / `file-type` / `xxhash-wasm` 三个提根依赖仍在 `dependencies`。
+**D2**：若动过 `vendor/`，`vendor-pull.sh --check` 的输出与本次提交一致；`vendor/display-intent` 是否被误当成镜像覆盖过（那会静默销毁 fork 工作）。
+**D3**：动过依赖版本 / `vendor/` / `package.json` 时，**重启 Pi 才算生效**，`/reload` 不够 —— 这一条必须明确说给用户。
 
 ---
 
@@ -248,20 +255,20 @@ reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
 
 | 观测面 | 源文件 / 位置 | 自动化 | 目视 |
 | --- | --- | --- | --- |
-| 加载顺序、扩展装载 | `packages/core/index.ts`、`packages/core/src/upstream-loader.ts` | `tests/hashline-contract.test.ts` | C1 |
-| hashline 工具名分类 | `packages/core/src/hashline-tools.ts` | 同名契约测试 | 阶段 4 工具表 |
-| 编辑工具 schema 锁 | `packages/core/src/hashline-edit-schema.ts` | 同名单测 | C2 |
-| 编辑截短 preview | `packages/core/src/compact-edit-ui.ts` | 同名单测 | A4 / A5 |
-| 静默工具与账本透传 | `packages/core/src/aggregate-silent-tools.ts`、`aggregate-silent-ledger.ts` | 同名测试 | A1 / A6 |
-| 中途正文保留 | `packages/core/src/aggregate-keep-narration.ts` | 同名测试 | A2 |
-| 账本钉去重 | `packages/core/src/aggregate-omit-ledger-narration.ts` | 同名测试 | A2 |
-| 子代理通知 | `packages/core/src/quiet-subagent-notifications.ts` | — | A7 |
-| 看门狗策略 | `packages/core/src/host-watchdog.ts` | 同名单测 + 不变量测试 | B（可选真机） |
-| 首次配置与 passthrough 迁移 | `packages/core/src/config-seed.ts`、`packages/core/config/default-display-config.json` | `config-seed.test.ts` | 阶段 4 配置核对 |
-| 配置落盘路径 | `packages/core/src/agent-dir.ts` | — | 阶段 4 |
-| 账本布局与 open elapsed | `vendor/pi-extensions/packages/pi-tool-display-intent` | 无（submodule） | A1 / A3 |
-| 依赖 pin、子模块 SHA | `packages/core/package.json`、`.gitmodules`、`git submodule status` | `update:upstream:check` | D1 / D2 / D3 |
-| 测试运行期解析 | `packages/core/tsconfig.json`、`packages/core/src/tsconfig.test.json` | `npm test` 本身 | — |
+| 加载顺序、扩展装载 | `index.ts`、`src/upstream-loader.ts` | `tests/hashline-contract.test.ts` | C1 |
+| hashline 工具名分类 | `src/hashline-tools.ts` | 同名契约测试 | 阶段 4 工具表 |
+| 编辑工具 schema 锁 | `src/hashline-edit-schema.ts` | 同名单测 | C2 |
+| 编辑截短 preview | `src/compact-edit-ui.ts` | 同名单测 | A4 / A5 |
+| 静默工具与账本透传 | `src/aggregate-silent-tools.ts`、`aggregate-silent-ledger.ts` | 同名测试 | A1 / A6 |
+| 中途正文保留 | `src/aggregate-keep-narration.ts` | 同名测试 | A2 |
+| 账本钉去重 | `src/aggregate-omit-ledger-narration.ts` | 同名测试 | A2 |
+| 子代理通知 | `packages/notify/src/quiet-subagent-notifications.ts` | 同名单测 | A7 |
+| 看门狗策略 | `packages/watchdog/src/host-watchdog.ts` | 同名单测 + 不变量测试 | B（可选真机） |
+| 首次配置与 passthrough 迁移 | `src/config-seed.ts`、`config/default-display-config.json` | `config-seed.test.ts` | 阶段 4 配置核对 |
+| 配置落盘路径 | `src/agent-dir.ts` | — | 阶段 4 |
+| 账本布局与 open elapsed | `vendor/display-intent`（fork，不得被 `vendor-pull` 覆盖） | 无 | A1 / A3 |
+| bundle 契约与 vendor 状态 | `package.json`、`vendor/*/package.json`、`scripts/vendor-pull.sh --check` | `npm pack --dry-run` 看 bundled deps | D1 / D2 / D3 |
+| 测试运行期解析 | `tsconfig.json`、`tsconfig.test.json`、`tests/tsconfig.test.json`、`packages/*/tsconfig.test.json` | `npm test` 本身 | — |
 
 > 本表与 `AGENTS.md` 的 **Testing checklist (manual)** 是同一套观测面的两种视角：那份是清单，这份带执行节奏与判据。改动新增观测面时，**两边都要补**。
 

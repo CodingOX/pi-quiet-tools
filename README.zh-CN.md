@@ -12,11 +12,18 @@
 | --- | --- |
 | [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | 给模型用的 Hash 锚点 `read`、`replace`、`insert`、`undo_last_change`、`anchor_grep` |
 | [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | 工具 renderer、结果压缩、diff、custom/MCP 工具装饰，以及 Tools 账本 |
-| `packages/core` | 加载顺序、重复加载守卫、静默 renderer、旁白处理、子代理通知紧凑化 |
+| `src` | 加载顺序、重复加载守卫、静默 renderer、旁白处理、子代理通知紧凑化 |
 
-`vendor/pi-extensions` 是一个 git submodule，指向 display-intent 仓库的一个 fork。display-intent 的功能开发属于那个 submodule；父包始终保持轻量 glue。
+随包一起发布的还有两个包。它们以真实文件形式被打进 bundle，装一次就全部到位；同时也各自可以被单独发布与安装：
 
-本仓库必须作为**单个**扩展安装。不要再单独安装 `pi-hashline-edit-pro` 或 `@zhcsyncer/pi-tool-display-intent` —— Pi 会把同一批工具注册两次。
+| 独立包 | 职责 |
+| --- | --- |
+| `@pi-quiet-tools/watchdog` | bash 失控闸门。80 次 bash 后先 nudge，再拦住后续工具逼模型开口。 |
+| `@pi-quiet-tools/notify` | 把子代理完成通知压成一行状态。 |
+
+两个上游层现在是**内嵌在本仓库**里的，不再从 npm 解析：`vendor/hashline` 是 `pi-hashline-edit-pro` 的只读镜像；`vendor/display-intent` 是 `@zhcsyncer/pi-tool-display-intent` 的 fork，含本地独占工作。见 [`vendor/README.md`](./vendor/README.md) 与 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
+
+本仓库必须作为**单个**扩展安装。不要再单独安装 `pi-hashline-edit-pro`、`@zhcsyncer/pi-tool-display-intent`、`@pi-quiet-tools/watchdog` 或 `@pi-quiet-tools/notify` —— 前两个会把同一批工具注册两次，后两个会把各自的事件处理器重复注册一遍。
 
 ## 安静契约
 
@@ -46,9 +53,9 @@
 I'll inspect the current glue layer first.
 
 ◐ Tools (4 calls · 2 turns) · 7s · read ×3 · bash ×1
-  ◐ Read(packages/core/index.ts)
-  ✓ Read(packages/core/src/config-seed.ts)
-  ✓ Read(packages/core/src/aggregate-silent-tools.ts)
+  ◐ Read(index.ts)
+  ✓ Read(src/config-seed.ts)
+  ✓ Read(src/aggregate-silent-tools.ts)
 
 ✓ Tools (9 calls · 3 turns) · read ×9
   took 12s · tok ↑18.2k ↓1.4k · at 14:32
@@ -148,7 +155,9 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 pi install git:github.com/CodingOX/pi-quiet-tools
 ```
 
-`https://github.com/CodingOX/pi-quiet-tools` 这种写法效果相同。本仓库把 `scripts/init-submodule.sh` 挂在 `preinstall` 上，所以 `vendor/pi-extensions` submodule 会在安装过程中被 clone 并检出到锁定提交 —— 你不需要加 `--recurse-submodules`。
+`https://github.com/CodingOX/pi-quiet-tools` 这种写法效果相同。
+
+本仓库没有 submodule，也没有 `preinstall` 钩子。所有第三方层都提交在 `vendor/` 里，普通 clone 就是完整的 —— 不需要 `--recurse-submodules`，加了也没有意义。
 
 `github:CodingOX/pi-quiet-tools` **不是** Pi 的包来源写法；Pi 只认 `git:` 前缀或协议 URL。
 
@@ -160,7 +169,6 @@ pi install git:github.com/CodingOX/pi-quiet-tools
 ```bash
 git clone git@github.com:CodingOX/pi-quiet-tools.git
 cd pi-quiet-tools
-npm run submodule:init
 npm install
 pi install /absolute/path/to/pi-quiet-tools
 ```
@@ -178,7 +186,7 @@ pi remove npm:@zhcsyncer/pi-tool-display-intent
 
 ### 更新
 
-`pi update` 会重新拉取本仓库并重跑安装，从而把 submodule 重新初始化到新版本锁定的那个提交。submodule 自己的分支不会被跟踪 —— 你拿到的就是本仓库提交里写死的那个 SHA。
+`pi update` 会重新拉取本仓库并重跑安装。你拿到的就是该修订里提交的那份 vendor 代码 —— 不存在一条能自己漂移的嵌套通道。
 
 本地 checkout 则拉取后重装：
 
@@ -214,7 +222,7 @@ seed 的 bundle 配置刻意不同于 display-intent 独立安装时的默认值
 
 ## 加载顺序与保障
 
-`packages/core/index.ts` 按以下顺序装配：
+`index.ts` 按以下顺序装配：
 
 1. 在导入上游模块之前 seed 或迁移 display-intent 配置。
 2. 安装 `registerTool` hook 与子代理通知紧凑 renderer。
@@ -227,28 +235,19 @@ seed 的 bundle 配置刻意不同于 display-intent 独立安装时的默认值
 
 ## 上游更新
 
-先读 [`docs/upstream-sync.md`](./docs/upstream-sync.md)。两个依赖都是刻意锁定的，而同步可能以终端不会报错的方式静默失效。
-display-intent 维护在 `vendor/pi-extensions` submodule 里：
+先读 [`docs/upstream-sync.md`](./docs/upstream-sync.md)。两个内嵌层都是刻意持有的，而同步可能以终端不会报错的方式静默失效。
 
 ```bash
-npm run submodule:init
-npm run sync:display-intent
+npm run vendor:pull             # hashline 直接覆盖；display-intent 只报告
+npm run vendor:pull -- --check  # 只报告，不落地
 ```
 
-把更新后的 submodule SHA 提交到本仓库，并在合适时机从 submodule 推送 fork 分支：
+> [!IMPORTANT]
+> 两个内嵌层的处理方式**故意不同**。`vendor/hashline` 是纯上游快照，所以同步就是目录级覆盖。
+> `vendor/display-intent` 是**fork**，承载本地独占工作，所以脚本拒绝碰它 —— 那边的上游合并是
+> 一次人工 rebase，有三个已记录的静默失效点。
 
-```bash
-git -C vendor/pi-extensions push origin HEAD
-```
-
-hashline 仍然是 npm 依赖：
-
-```bash
-npm run update:upstream:check
-npm run update:upstream
-```
-
-上游更新之后：
+同步之后：
 
 ```bash
 npm run typecheck
@@ -265,4 +264,4 @@ npm test
 
 ## License
 
-MIT
+本仓库为 MIT。内嵌的第三方代码保留其自身的 MIT 条款与版权人 —— 见 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。

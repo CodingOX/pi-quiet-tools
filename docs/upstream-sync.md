@@ -1,19 +1,35 @@
 # Upstream sync evaluation
 
-Status: **hashline migration done; display-intent deliberately deferred.**
+Status: **both halves vendored; hashline is a mirror, display-intent stays a deferred fork.**
 
-The hashline half of this record has been executed — see [What the hashline migration changed](#what-the-hashline-migration-changed). The analysis below is kept because it is still the reasoning behind the current pins, and because the display-intent half remains open.
+> 📌 **This record predates the vendoring rework.** It was written when hashline came from npm
+> and display-intent came from a git submodule. Those two channels no longer exist: both now live
+> in `vendor/`, and the only sync entry point is `scripts/vendor-pull.sh`. The **analysis** below is
+> kept verbatim because it is still the reasoning behind every decision — the fork's cost, the three
+> silent-failure seams, and the version-ladder breakpoints all remain true. Where a command or a
+> channel name is stale, the "Current channels" section below supersedes it.
 
-Recorded 2026-09-12 against hashline 2.6.1 and display-intent 0.9.0. Read this before re-running any upstream update, so the analysis is not repeated from scratch. Claims below were verified against source or by execution; anything resting on judgement instead of evidence is called out inline.
+Recorded 2026-09-12 against hashline 2.6.1 and display-intent 0.9.0. Read this before re-running any upstream sync, so the analysis is not repeated from scratch. Claims below were verified against source or by execution; anything resting on judgement instead of evidence is called out inline.
 
-## Verdict
+## Current channels
 
-| Dependency | Channel | Pinned | Upstream | Call |
+| Layer | Location | Upstream at time of writing | Local | Sync behaviour |
 | --- | --- | --- | --- | --- |
-| `pi-hashline-edit-pro` | npm | **4.2.5** (exact) | **4.2.5** | ✅ Migrated |
-| `@zhcsyncer/pi-tool-display-intent` | submodule `vendor/pi-extensions` | **0.9.0** (`0e90617`) | **0.10.0** | 🔴 Defer — cost exceeds gain right now |
+| `pi-hashline-edit-pro` | `vendor/hashline` | **4.3.4** | **4.2.5** | read-only mirror → `vendor-pull.sh` overwrites it |
+| `@zhcsyncer/pi-tool-display-intent` | `vendor/display-intent` | **0.10.0** | **0.9.0** + 14 fork-modified files | fork → `vendor-pull.sh` **only reports** |
 
-The two channels are independent. `npm run update:upstream` only touches hashline; the submodule moves only through `npm run sync:display-intent`.
+```bash
+npm run vendor:pull             # hashline overwritten; display-intent reported only
+npm run vendor:pull -- --check  # report only, no writes
+```
+
+The asymmetry is deliberate and encoded in the script. `vendor/hashline` has zero local edits, so
+overwriting it cannot lose anything. `vendor/display-intent` carries local-only work
+(`per-turn` ledger layout, the open-ledger tick, per-runtime owner lifecycle), so an automatic
+overwrite would destroy it silently — see [Three silent-failure landmines](#three-silent-failure-landmines).
+
+Hashline being 12 patch/minor versions behind is a **choice**, not drift: 4.2.6 → 4.3.4 landed inside
+six days, and 4.3.4's breakpoints have not been evaluated against the glue yet.
 
 ## Why hashline is worth migrating
 
@@ -49,7 +65,7 @@ change pi-hashline-edit-pro 2.6.1 => 2.8.4
 The rename originally looked like a four-file find-and-replace. It was done differently on purpose, because that shape was the actual defect: the same name list was written out four times, so every upstream rename meant hunting for all four copies. The list now lives in one module.
 
 ```text
-packages/core/src/hashline-tools.ts           ← single source of truth (new)
+src/hashline-tools.ts           ← single source of truth (new)
   HASHLINE_TOOLS          read, replace, insert, undo_last_change, anchor_grep
   LEGACY_HASHLINE_TOOLS   undo_last_replace (retired)
   HASHLINE_TOOL_NAME_SET  current + retired, for matching
@@ -75,7 +91,7 @@ Beyond the rename:
 
 The built-in `edit` tool is still force-disabled in 4.2.5 (`setActiveTools((t) => t !== "edit")`), so that behaviour carried over unchanged.
 
-The 3→4 char anchor change stayed **narrower than it looked**: glue contains no parse of anchor width or shape. The `│` characters in `packages/core` are Ctrl+O frame edges, not anchor separators, so no ledger predicate depended on anchor width. Only the README sample needed updating, because it is documentation of `read` output.
+The 3→4 char anchor change stayed **narrower than it looked**: glue contains no parse of anchor width or shape. The `│` characters in `src` are Ctrl+O frame edges, not anchor separators, so no ledger predicate depended on anchor width. Only the README sample needed updating, because it is documentation of `read` output.
 
 New regression coverage, all verified to fail when the name list is wrong:
 
@@ -99,7 +115,7 @@ Two facts make removal safe rather than merely tidy:
 - Pi dedupes extensions by canonical path (`mergePaths`), so the same extension loaded from the same path only runs once.
 - A genuine double install is already caught by Pi: a tool-name collision produces a `Tool "read" conflicts with ...` diagnostic. Note this is pushed to `errors` but **does not block startup** — all extensions stay loaded and precedence follows load order.
 
-So glue now calls `hashlineExtension` unconditionally, and the reasoning is parked in a comment at the top of `packages/core/src/upstream-loader.ts` so nobody reintroduces the same dead guard. The duplicate-detection tests were removed with it, since asserting a dead branch produces confidence without protection.
+So glue now calls `hashlineExtension` unconditionally, and the reasoning is parked in a comment at the top of `src/upstream-loader.ts` so nobody reintroduces the same dead guard. The duplicate-detection tests were removed with it, since asserting a dead branch produces confidence without protection.
 
 ## Why display-intent is deferred
 
@@ -128,11 +144,11 @@ That is only commit 1 of 9.
 
 These matter more than the conflict count, because each one **fails without an error**:
 
-1. **The patch key moved `v1` → `v2`.** Upstream renamed `pi-tool-display-intent.aggregate-tool-execution.v1` to `...v2` (keeping a legacy constant for its own cleanup). `packages/core/src/aggregate-silent-tools.ts` reads **v1**, so after a sync the silent-tool patch would simply never install — hashline rows would leak beside the ledger, with nothing in the terminal saying why.
+1. **The patch key moved `v1` → `v2`.** Upstream renamed `pi-tool-display-intent.aggregate-tool-execution.v1` to `...v2` (keeping a legacy constant for its own cleanup). `src/aggregate-silent-tools.ts` reads **v1**, so after a sync the silent-tool patch would simply never install — hashline rows would leak beside the ledger, with nothing in the terminal saying why.
 
 2. **`hasPrecedingAggregateToolsLedger` no longer exists upstream.** Verified: **0 occurrences across all of upstream/main**. Glue calls it through optional chaining and `=== true`, so the resolver degrades to `false` instead of throwing. The consequence is subtle: the native narration spacer stops being restored, so spacing regresses rather than breaking.
 
-3. **The ledger title changed `Tools` → `Run`.** Two glue predicates match `^Tools\s*\(\s*\d+\s+calls?` (`aggregate-silent-ledger.ts`, `aggregate-omit-ledger-narration.ts`), plus 28 test assertions across `packages/core/src`. After a sync these stop matching and the narration-omission path quietly no-ops.
+3. **The ledger title changed `Tools` → `Run`.** Two glue predicates match `^Tools\s*\(\s*\d+\s+calls?` (`aggregate-silent-ledger.ts`, `aggregate-omit-ledger-narration.ts`), plus 28 test assertions across `src/src`. After a sync these stop matching and the narration-omission path quietly no-ops.
 
 Also renamed: the slash command `/tool-display-intent` → `/tools`. And the seed config would need pruning — `intent.enabled` and `toolCalls.style` are gone from the 0.10.0 schema, with `toolCalls.expandedTimeline` / `showContextGrowth` added.
 
@@ -144,7 +160,7 @@ The three per-turn commits (`a07ee96`, `1001b52`, `b9f1e49`) therefore target a 
 
 ### The biggest 0.10.0 win is already solved here
 
-0.10.0's headline noise reduction includes folding custom messages — background task completion notices — into the Run ledger. `packages/core/src/quiet-subagent-notifications.ts` already renders those as one compact line, and does it more aggressively than upstream.
+0.10.0's headline noise reduction includes folding custom messages — background task completion notices — into the Run ledger. `src/quiet-subagent-notifications.ts` already renders those as one compact line, and does it more aggressively than upstream.
 
 Worth noting: **upstream independently fixed the same bugs this fork fixed** — thinking being mistaken for mid-turn narration, ledger/narration spacing, and passthrough inset alignment. That is validation that the fork's direction was right, not evidence of duplicated work. The one upstream fix in this area (`1768c9d`) is an ancestor of the merge-base, so it was already inherited.
 
@@ -183,9 +199,9 @@ For display-intent:
 Re-run these to refresh the facts:
 
 ```bash
-npm run update:upstream:check                    # hashline installed vs range vs latest
-git -C vendor/pi-extensions fetch upstream       # refresh upstream refs
-git -C vendor/pi-extensions rev-list --left-right --count upstream/main...feat/per-turn-layout
+npm run vendor:pull -- --check   # hashline drift vs display-intent fork delta, no writes
+git ls-remote --tags https://github.com/YuGiMob/pi-hashline-edit-pro.git | tail -5
+git ls-remote --heads https://github.com/CodingOX/pi-extensions.git   # fork branch still reachable
 ```
 
 ## Related
