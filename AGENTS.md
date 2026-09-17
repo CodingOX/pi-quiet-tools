@@ -6,7 +6,7 @@ Guidance for humans and coding agents working in this repository.
 
 **pi-quiet-tools** is a workspace that ships one Pi extension:
 
-1. **`packages/core`** (`@pi-quiet-tools/core`) — glue: load order, silent UI, interim Markdown, UI-host watchdog.
+1. **`packages/core`** (`@pi-quiet-tools/core`) — glue: load order, silent UI, interim Markdown, host/child watchdog.
 2. **`vendor/pi-extensions`** — git submodule of [CodingOX/pi-extensions](https://github.com/CodingOX/pi-extensions), tracking [zhcsyncer/pi-extensions](https://github.com/zhcsyncer/pi-extensions). Display-intent source lives here.
 3. **pi-hashline-edit-pro** — still an npm dependency (execution layer).
 
@@ -37,7 +37,7 @@ packages/core/index.ts
   ├─ register-tool-hook.ts       Wrap registerTool; silent read/search, compact replace/insert
   ├─ compact-edit-ui.ts          Truncated +/- preview for visible edits
   ├─ quiet-subagent-notifications.ts  Compress subagent completion notifications
-  ├─ host-watchdog.ts            UI-host bash/wall-clock runaway gate
+  ├─ host-watchdog.ts            bash runaway gate (UI host + child sessions)
   ├─ aggregate-silent-tools.ts   Swallow non-ledger silent renders; collapsed ledger passes through
   ├─ aggregate-keep-narration.ts Keep interim assistant Markdown
   ├─ upstream-loader.ts          display-intent duplicate guard (hashline guard removed — see below)
@@ -128,7 +128,7 @@ The skill defers to the manual checklist below for what to look at, and adds the
 5. `replace` and `insert` show a truncated +/- snippet (about 6 change lines, stats on the header). `Ctrl+O` restores hashline's native preview. `anchor_grep` stays silent; the built-in `grep` is disabled while it is on.
 6. `/reload` does not duplicate tools or lose silent UI / narration.
 7. Existing display-intent config: passthrough migration strips silent hashline names (current plus retired, e.g. `undo_last_replace`) and restores `Agent`, `replace`, and `insert`. Layout stays as saved (`aggregate` vs `per-turn`). Add more high-signal names to `QUIET_UI_PASSTHROUGH_KEEP` in `config-seed.ts`.
-8. UI host: 80 bash → nudge; after 10 more turns, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash and grace. Child sessions (`hasUI !== true`) are untouched. In-flight commands are not aborted. There is no request or grace wall-clock cap.
+8. UI host: 80 bash → nudge; after 10 more turns, later tools are blocked and the model is told to report current/next work in Chinese. Official assistant text (not thinking) in that turn resets bash and grace. Child sessions (`hasUI !== true`) share 80+10 on their own ledger; official text does **not** reset; the child is told to return an `INCOMPLETE` handoff to the parent and settle. In-flight commands are not aborted. There is no request or grace wall-clock cap.
 
 ## Where hashline tool names live
 

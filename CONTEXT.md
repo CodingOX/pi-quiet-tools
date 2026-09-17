@@ -1,6 +1,6 @@
 # Quiet Tools Display
 
-The language for collapsing tool activity in the Pi terminal without making an open phase look stuck, and for stopping a UI-host runaway without touching child sessions.
+The language for collapsing tool activity in the Pi terminal without making an open phase look stuck, and for stopping a silent bash runaway on the UI host and on child sessions.
 
 ## Language
 
@@ -41,27 +41,31 @@ The session a human is watching. `ctx.hasUI` is true.
 _Avoid_: main agent, parent session
 
 **Child session**:
-An in-process subagent session. `ctx.hasUI` is false.
+An in-process subagent session. `ctx.hasUI` is false. It has its own watchdog ledger, not the host's.
 _Avoid_: isolated agent
 
 **Bash budget**:
-The cap on bash calls in one UI-host user request that trips the watchdog nudge.
+The cap on bash calls in one user request (host or child) that trips the watchdog nudge. Same number for both: 80.
 _Avoid_: tool budget
 
 **Watchdog nudge**:
-The first intervention after the bash budget in one UI-host user request. Waiting on the human (Ask) or a child session does not trip it. There is no request wall-clock cap.
+The first intervention after the bash budget. On the UI host it asks for visible prose and resets when that prose appears. On a child session it asks for an incomplete handoff to the parent; child prose does not reset the ledger. Waiting on the human (Ask) or a child session does not trip the **host** gate. There is no request wall-clock cap.
 _Avoid_: warning, reminder, progress tool
 
 **Grace period**:
-The remaining LLM tool-calling turns after a watchdog nudge. Turns alone end it; there is no grace wall-clock cap.
+The remaining LLM tool-calling turns after a watchdog nudge. Turns alone end it; there is no grace wall-clock cap. Same length on host and child: 10.
 _Avoid_: timeout
 
 **Hard stop**:
-The state after the grace period. Later tool calls are refused so the UI host must reply with current work and next steps. An already-running tool is not aborted. The first official assistant text of a later turn resets this state.
+The state after the grace period. Later tool calls are refused so the model must speak. An already-running tool is not aborted. On the UI host, the first official assistant text of a later turn resets this state. On a child session it does not: the child must settle with an incomplete handoff; it will not resume itself.
 _Avoid_: kill, abort, cancel
 
+**Incomplete handoff**:
+The child-session watchdog reply. First line is `INCOMPLETE`. Tells the parent what is done, what is not, and whether to `resume` or continue the work. It is not a completion.
+_Avoid_: progress report, status reply
+
 **Official assistant text**:
-Visible assistant Markdown the human can read — not thinking blocks, not GPT-style `<thinking>` tags, not a leftover session-sequence prefix. The first such text in a UI-host turn resets the bash budget and watchdog phase.
+Visible assistant Markdown — not thinking blocks, not GPT-style `<thinking>` tags, not a leftover session-sequence prefix. The first such text in a UI-host turn resets the bash budget and watchdog phase. Child-session text does not.
 _Avoid_: thinking, tool dump, narration pin
 
 **Closeout gate**:

@@ -21,7 +21,7 @@ pi-quiet-tools
 └── pi-hashline-edit-pro          npm pin — execution layer; wrapped, not forked
 ```
 
-Hashline’s execution contract is unchanged: the model still gets full anchors, `replace` / `insert` semantics, and complete tool results. Quiet-tools only changes what the **terminal** draws, plus one UI-host runaway gate that never touches child sessions.
+Hashline’s execution contract is unchanged: the model still gets full anchors, `replace` / `insert` semantics, and complete tool results. Quiet-tools only changes what the **terminal** draws, plus a runaway gate for the UI host and for child sessions.
 
 Display-intent feature work belongs in the submodule (then PR to zhcsyncer). Glue stays thin. Do not copy upstream files into `packages/core`.
 
@@ -33,8 +33,8 @@ Capabilities that vanilla hashline + standalone display-intent do not ship.
 
 ### Glue (`packages/core`)
 
-**UI-host watchdog** — `host-watchdog.ts`
-Stops a silent bash runaway in the session a human is watching. 80 bash → nudge; then 10 turns → later tools are blocked and the model must report current/next work in Chinese. Waiting on Ask or a child session does not trip it. Child sessions (`hasUI !== true`) are exempt. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md).
+**Watchdog** — `host-watchdog.ts`
+Stops a silent bash runaway. UI host: 80 bash → nudge; then 10 turns → later tools are blocked and the model must report current/next work in Chinese; official text resets the ledger. Child session: same 80+10 on an isolated ledger, but official text does not reset; the child must return an incomplete handoff (`INCOMPLETE`) and settle. Waiting on Ask or a child does not trip the **host**. No UI notify on children. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md) and [ADR 0004](./adr/0004-child-session-watchdog.md).
 
 **Compact edit preview** — `compact-edit-ui.ts`
 
