@@ -1,0 +1,13 @@
+{
+  "//": "根级契约测试专用 tsconfig。这里绝不放 paths —— tests/hashline-contract.test.ts 必须解析到 vendor/ 里的真实依赖，才能验证上游真正注册了哪些工具名。根 tsconfig.json 为 tsc 准备的 upstream stub 别名会把它解析成 .d.ts，测试会报 does not provide an export named 'default'。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": "..",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  }
+}

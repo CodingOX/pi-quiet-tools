@@ -12,7 +12,7 @@ import {
   HASHLINE_SILENT_TOOLS,
   HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET,
   HASHLINE_VISIBLE_EDIT_TOOLS,
-} from "../packages/core/src/hashline-tools.js";
+} from "../src/hashline-tools.js";
 
 test("hashline registers exactly the tool names glue knows about", () => {
   const registered: string[] = [];

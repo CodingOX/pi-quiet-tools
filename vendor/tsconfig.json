@@ -1,0 +1,28 @@
+{
+  "//": "给 vendor/ 下的第三方代码一份宽松配置。",
+  "//why": [
+    "vendor/hashline 来自 npm tarball，上游不发布 tsconfig（package.json 的 files 只有",
+    "index.ts / src / prompts / README / LICENSE）。没有就近的 tsconfig 时，TypeScript",
+    "语言服务会回退到默认设置，把第三方代码按严格模式报一堆假阳性。",
+    "这份配置放在 vendor/ 根，**不在两个镜像目录内**，所以 vendor-pull.sh 的目录级覆盖",
+    "不会删掉它；同时它只影响编辑器/语言服务，仓库门禁（typecheck / test）本来就不扫 vendor/。",
+    "vendor/display-intent 自带上游 tsconfig，会优先于这份生效，不受影响。"
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "noImplicitThis": false,
+    "strictNullChecks": false
+  },
+  "include": ["hashline/**/*.ts"],
+  "exclude": ["**/node_modules"]
+}

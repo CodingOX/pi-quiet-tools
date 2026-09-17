@@ -1,29 +1,72 @@
 {
-  "name": "pi-quiet-tools",
+  "name": "@pi-quiet-tools/pi-quiet-tools",
   "version": "0.1.0",
   "private": false,
   "type": "module",
-  "description": "Pi glue extension workspace: core package plus a tracking submodule of pi-extensions.",
+  "description": "Pi bundle: hash-anchored editing + quiet aggregate tool UI + bash runaway watchdog + compact subagent notices.",
   "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "hashline",
+    "quiet-ui",
+    "watchdog"
+  ],
   "workspaces": [
-    "packages/core"
+    "packages/notify",
+    "packages/watchdog"
   ],
   "pi": {
     "extensions": [
-      "./packages/core/index.ts"
+      "./index.ts"
     ]
+  },
+  "//files": "只发布运行时要用的东西。不列 vendor/ —— 两个上游镜像靠 bundledDependencies 以真实文件落在 node_modules/ 下，tarball 里再放一份 vendor 只会双倍体积（含未使用的 devDependencies）。vendor/ 在源码仓库里才是必需的。",
+  "files": [
+    "index.ts",
+    "src",
+    "config",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE",
+    "THIRD-PARTY-NOTICES.md"
+  ],
+  "dependencies": {
+    "@pi-quiet-tools/notify": "file:./packages/notify",
+    "@pi-quiet-tools/watchdog": "file:./packages/watchdog",
+    "@zhcsyncer/pi-tool-display-intent": "file:./vendor/display-intent",
+    "diff": "^9.0.0",
+    "file-type": "^22.0.2",
+    "pi-hashline-edit-pro": "file:./vendor/hashline",
+    "xxhash-wasm": "^1.1.0"
+  },
+  "bundledDependencies": [
+    "@pi-quiet-tools/notify",
+    "@pi-quiet-tools/watchdog",
+    "@zhcsyncer/pi-tool-display-intent",
+    "diff",
+    "file-type",
+    "pi-hashline-edit-pro",
+    "xxhash-wasm"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.0 <1",
+    "@earendil-works/pi-tui": ">=0.84.0 <1"
   },
   "engines": {
     "node": ">=22.19.0"
   },
   "scripts": {
-    "preinstall": "bash scripts/init-submodule.sh",
-    "submodule:init": "bash scripts/init-submodule.sh && bash scripts/bootstrap-submodule-remotes.sh",
-    "sync:display-intent": "bash scripts/sync-display-intent.sh",
-    "typecheck": "npm run typecheck -w @pi-quiet-tools/core",
-    "test": "npm run test -w @pi-quiet-tools/core && npx --yes tsx --test tests/*.test.ts",
-    "update:upstream": "bash scripts/update-upstream.sh",
-    "update:upstream:latest": "bash scripts/update-upstream.sh --latest",
-    "update:upstream:check": "bash scripts/update-upstream.sh --check"
+    "typecheck": "tsc --noEmit && npm run typecheck -w @pi-quiet-tools/watchdog && npm run typecheck -w @pi-quiet-tools/notify",
+    "test": "npm run test:core && npm run test -w @pi-quiet-tools/watchdog && npm run test -w @pi-quiet-tools/notify",
+    "test:core": "npx --yes tsx --tsconfig tsconfig.test.json --test src/*.test.ts && npx --yes tsx --tsconfig tests/tsconfig.test.json --test tests/*.test.ts",
+    "vendor:pull": "bash scripts/vendor-pull.sh"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@earendil-works/pi-tui": "0.84.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
   }
 }

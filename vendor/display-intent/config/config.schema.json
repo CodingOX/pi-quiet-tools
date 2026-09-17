@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/zhcsyncer/pi-extensions/main/packages/pi-tool-display-intent/config/config.schema.json",
+  "title": "pi-tool-display-intent configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "results"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 2
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "language": {
+          "enum": ["auto", "zh-CN", "en"],
+          "default": "auto"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 256,
+          "default": 96
+        }
+      }
+    },
+    "toolCalls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "layout": {
+          "enum": ["individual", "aggregate", "per-turn"],
+          "default": "individual",
+          "description": "Controls whether tools use their individual renderers, one bounded all-tool Tools summary per user request (aggregate), or one Tools summary per continuous tool phase separated by visible narration or a mid-turn steer (per-turn). Ledger layouts stay collapsed. While a ledger is running, the latest assistant note stays pinned under the header, above the tool rows; after it settles, assistant notes hide and a receipt shows duration, tokens, cache, and completion time. Ctrl+O restores the original timeline of notes plus one target/status summary per call."
+        },
+        "style": {
+          "enum": ["compact", "claude"],
+          "default": "compact"
+        },
+        "bashCommandPreviewRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 1,
+          "description": "Maximum rendered terminal rows used by collapsed Bash command arguments. Ctrl+O shows the complete command."
+        }
+      }
+    },
+    "results": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode"],
+      "properties": {
+        "mode": {
+          "enum": ["compact", "summary", "preview"],
+          "default": "compact",
+          "description": "Controls whether tool results are compact, summarized, or previewed."
+        },
+        "previewRows": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 80,
+          "default": 8,
+          "description": "Maximum rendered terminal rows shown by collapsed tool-result content previews after wrapping."
+        }
+      }
+    },
+    "diff": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "layout": {
+          "enum": ["auto", "split", "unified"],
+          "default": "auto"
+        },
+        "indicators": {
+          "enum": ["bars", "classic", "none"],
+          "default": "bars"
+        },
+        "splitMinWidth": {
+          "type": "integer",
+          "minimum": 70,
+          "maximum": 240,
+          "default": 120
+        },
+        "collapsedRows": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 240,
+          "default": 24
+        },
+        "collapsedMode": {
+          "enum": ["body", "summary"],
+          "default": "body",
+          "description": "Controls what edit/write diffs render before Ctrl+O expansion. 'body' shows the first collapsedRows rows then a fold hint; 'summary' shows only the +N -M stats line for the densest transcript."
+        },
+        "wordWrap": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "transcript": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userMessageStyle": {
+          "enum": ["boxed", "default"],
+          "default": "boxed"
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "passthrough": {
+          "type": "array",
+          "uniqueItems": true,
+          "default": ["Agent"],
+          "description": "Tool names whose original transcript renderer remains active in aggregate layout. Agent is always included by default. Built-in names also opt out of this extension's individual renderer override.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!\\s)(?=.*\\S)(?!.*\\s$).+$"
+          }
+        },
+        "custom": {
+          "type": "object",
+          "propertyNames": {
+            "minLength": 1,
+            "pattern": "^(?!\\s)(?=.*\\S)(?!.*\\s$).+$",
+            "not": {
+              "enum": ["read", "grep", "find", "ls", "bash", "edit", "write"]
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/customTool"
+          }
+        }
+      }
+    },
+    "advanced": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "expandedRows": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20000,
+          "default": 4000,
+          "description": "Maximum laid-out rows shown after expansion. Zero removes the configured cap while internal safety limits still apply."
+        },
+        "truncationHints": {
+          "type": "boolean",
+          "default": false
+        },
+        "rtkCompactionHints": {
+          "type": "boolean",
+          "default": false
+        },
+        "debug": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  },
+  "$defs": {
+    "customTool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "renderer": {
+          "enum": ["generic", "mcp"],
+          "default": "generic"
+        },
+        "mode": {
+          "enum": ["hidden", "summary", "preview"],
+          "default": "summary"
+        }
+      }
+    }
+  }
+}

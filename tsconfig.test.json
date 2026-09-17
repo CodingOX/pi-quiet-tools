@@ -1,0 +1,15 @@
+{
+  "//": "测试专用 tsconfig。规则：**不得出现 paths**。tsx 会把 tsconfig 的 paths 当运行时解析表，任何 stub 别名都会让真实依赖被解析成 .d.ts（历史上踩过：子路径别名导致 does not provide an export named ...）。测试若需要上游的真实实现，就直接 import vendor/ 里的源码，别用 stub。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [
+      "node"
+    ]
+  }
+}

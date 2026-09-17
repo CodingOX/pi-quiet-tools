@@ -1,0 +1,13 @@
+{
+  "//": "看门狗包测试用 tsconfig。与 core 的测试配置同规则：tsx 会把 paths 当运行时解析表，所以这里不放任何会遮蔽真实依赖的别名。",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": "../..",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "@pi-quiet-tools/watchdog",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Bash runaway watchdog for Pi: nudge first, then block further tools until the agent speaks.",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "watchdog",
+    "runaway-guard"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./assistant-text": "./src/assistant-text.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.84.0 <1"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "npx --yes tsx --tsconfig tsconfig.test.json --test src/*.test.ts"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.8.0"
+  }
+}
