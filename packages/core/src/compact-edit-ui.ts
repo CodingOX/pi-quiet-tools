@@ -12,6 +12,20 @@ import { tryResolveEditTarget } from "pi-hashline-edit-pro/src/edit-common.ts";
  */
 export const EDIT_PREVIEW_MAX_LINES = 6;
 
+/**
+ * 折叠态编辑预览的外壳实验开关。改这一行 → 用户 /reload → 看终端。
+ *
+ * - padded: 留 Pi 默认绿壳，只给 Text 加 paddingX=2
+ * - self: 去绿壳，靠 Text padding 缩进
+ * - rail: 去绿壳；标题（insert/replace）在轨道外，stats/diff 左缘 inset 后再画 muted `│ `
+ *
+ * 不要做成配置项。paddingY 必须保持 0，否则标题和 diff 会被撕开。
+ */
+export type CompactEditChrome = "padded" | "self" | "rail";
+export const COMPACT_EDIT_CHROME: CompactEditChrome = "rail";
+/** rail 左缘到 `│` 的空格数。竖线到文字固定 `│ ` 那 1 格，左距必须更大。 */
+const RAIL_INSET_X = 2;
+
 const DIFF_CONTENT_MAX_CHARS = 120;
 
 const HASHLINE_DIFF_LINE = /^([+ -])(?:[A-Za-z0-9]{4}| {4})│(.*)$/;
@@ -288,8 +302,49 @@ export function formatCompactEditResult(
   return withTrailingGap(body);
 }
 
-function textResult(content: string): Text {
+/**
+ * chrome 只在包装层加，不进 formatCompactEdit*。
+ * format 测试继续钉「标题 / stats / diff」纯文本。
+ */
+function applyCompactEditChrome(
+  content: string,
+  theme?: CompactEditTheme,
+): { text: string; paddingX: number } {
+  if (COMPACT_EDIT_CHROME === "rail") {
+    const rail = paint(theme, "muted", "│ ");
+    const lines = content.split("\n");
+    return {
+      text: lines
+        .map((line, index) =>
+          line.length === 0 && index === lines.length - 1
+            ? line
+            : `${rail}${line}`,
+        )
+        .join("\n"),
+      paddingX: RAIL_INSET_X,
+    };
+  }
+  if (COMPACT_EDIT_CHROME === "padded" || COMPACT_EDIT_CHROME === "self") {
+    return { text: content, paddingX: 2 };
+  }
+  return { text: content, paddingX: 0 };
+}
+
+function textCall(content: string): Text {
+  // rail：标题放轨道外面，不带 │、不 inset。paddingY 仍必须为 0。
+  if (COMPACT_EDIT_CHROME === "rail") {
+    return new Text(content, 0, 0);
+  }
+  if (COMPACT_EDIT_CHROME === "padded" || COMPACT_EDIT_CHROME === "self") {
+    return new Text(content, 2, 0);
+  }
   return new Text(content, 0, 0);
+}
+
+function textResult(content: string, theme?: CompactEditTheme): Text {
+  const chrome = applyCompactEditChrome(content, theme);
+  // paddingY 必须为 0：标题和 diff 是同一个外壳里两个 child，Y 向 padding 会把它们撕开。
+  return new Text(chrome.text, chrome.paddingX, 0);
 }
 
 /**
@@ -311,6 +366,10 @@ export function compactEditToolUi(tool: ToolDefinition): ToolDefinition {
   const originalResult = tool.renderResult;
   const wrapped = {
     ...tool,
+    // B/C 去绿壳。renderShell 是工具级属性，展开态 hashline 原预览也会丢绿底。
+    ...(COMPACT_EDIT_CHROME === "padded"
+      ? {}
+      : { renderShell: "self" as const }),
     renderCall(
       args: unknown,
       theme: CompactEditTheme,
@@ -324,7 +383,9 @@ export function compactEditToolUi(tool: ToolDefinition): ToolDefinition {
           context as never,
         );
       }
-      return textResult(formatCompactEditCall(tool.name, args, theme, context));
+      return textCall(
+        formatCompactEditCall(tool.name, args, theme, context),
+      );
     },
     renderResult(
       result: unknown,
@@ -353,6 +414,7 @@ export function compactEditToolUi(tool: ToolDefinition): ToolDefinition {
           theme,
           context,
         ),
+        theme,
       );
     },
   } as ToolDefinition;

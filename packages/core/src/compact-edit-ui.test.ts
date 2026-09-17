@@ -351,7 +351,7 @@ test("collapsed replace title shows the relative file, not the anchor range", as
     ) as Text;
     assert.equal(
       collapsed.render(80).join("\n").trim(),
-      "replace _quiet_tools_ui_probe.tmp",
+      "│ replace _quiet_tools_ui_probe.tmp",
     );
     assert.doesNotMatch(collapsed.render(80).join("\n"), /FULL CALL/);
     assert.doesNotMatch(collapsed.render(80).join("\n"), new RegExp(from));
@@ -380,7 +380,63 @@ test("collapsed path resolve does not mutate lastComponent", () => {
     { fg: (_color: string, text: string) => text } as never,
     { cwd: "/repo", state: { resolvedPath: "/repo/a.ts" }, lastComponent: last },
   ) as Text;
-  assert.equal(collapsed.render(80).join("\n").trim(), "replace a.ts");
+  assert.equal(collapsed.render(80).join("\n").trim(), "│ replace a.ts");
   assert.equal(last.render(80).join("\n").trim(), "STALE");
   assert.doesNotMatch(collapsed.render(80).join("\n"), /HASHLINE CALL/);
+});
+
+test("collapsed rail chrome prefixes call and result and drops the default shell", () => {
+  const tool = compactEditToolUi({
+    name: "insert",
+    renderCall: () => new Text("FULL CALL", 0, 0),
+    renderResult: () => new Text("FULL RESULT", 0, 0),
+  } as never);
+  assert.equal(tool.renderShell, "self");
+  const identity = {
+    fg: (_color: string, text: string) => text,
+  };
+  const call = tool.renderCall?.(
+    { path: "Makefile" },
+    identity as never,
+    {},
+  ) as Text;
+  const callLine = call.render(80)[0] ?? "";
+  assert.match(callLine, /^  │ insert Makefile/);
+
+  const result = tool.renderResult?.(
+    {
+      details: {
+        diff: "+Ab12│# quiet tools",
+        metrics: { added_lines: 8, removed_lines: 1 },
+      },
+    },
+    { isPartial: false },
+    identity as never,
+    { args: { path: "Makefile" } },
+  ) as Text;
+  const resultLines = result.render(80);
+  assert.match(resultLines[0] ?? "", /^  │ \+8 -1/);
+  assert.match(resultLines[1] ?? "", /^  │ \+# quiet tools/);
+  assert.doesNotMatch(resultLines.join("\n"), /FULL RESULT/);
+  assert.doesNotMatch(callLine, /FULL CALL/);
+});
+
+test("format helpers stay prefix-free so chrome lives in the wrapper", () => {
+  assert.equal(
+    formatCompactEditCall("insert", { path: "Makefile" }),
+    "insert Makefile",
+  );
+  assert.doesNotMatch(
+    formatCompactEditResult(
+      "insert",
+      { path: "Makefile" },
+      {
+        details: {
+          diff: "+Ab12│# quiet tools",
+          metrics: { added_lines: 8, removed_lines: 1 },
+        },
+      },
+    ),
+    /│ /,
+  );
 });

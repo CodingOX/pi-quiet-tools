@@ -75,6 +75,8 @@ export function applyMinimalUiToHashlineTools(pi: ExtensionAPI): void {
       Object.assign(tool, {
         renderCall: decorated.renderCall,
         renderResult: decorated.renderResult,
+        // 加载期 getAllTools 基本是 no-op，但 B/C 的 renderShell 不要留缺口。
+        renderShell: decorated.renderShell,
       });
     }
   } catch {
