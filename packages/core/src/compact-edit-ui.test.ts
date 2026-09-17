@@ -351,7 +351,7 @@ test("collapsed replace title shows the relative file, not the anchor range", as
     ) as Text;
     assert.equal(
       collapsed.render(80).join("\n").trim(),
-      "│ replace _quiet_tools_ui_probe.tmp",
+      "replace _quiet_tools_ui_probe.tmp",
     );
     assert.doesNotMatch(collapsed.render(80).join("\n"), /FULL CALL/);
     assert.doesNotMatch(collapsed.render(80).join("\n"), new RegExp(from));
@@ -380,7 +380,7 @@ test("collapsed path resolve does not mutate lastComponent", () => {
     { fg: (_color: string, text: string) => text } as never,
     { cwd: "/repo", state: { resolvedPath: "/repo/a.ts" }, lastComponent: last },
   ) as Text;
-  assert.equal(collapsed.render(80).join("\n").trim(), "│ replace a.ts");
+  assert.equal(collapsed.render(80).join("\n").trim(), "replace a.ts");
   assert.equal(last.render(80).join("\n").trim(), "STALE");
   assert.doesNotMatch(collapsed.render(80).join("\n"), /HASHLINE CALL/);
 });
@@ -401,7 +401,8 @@ test("collapsed rail chrome prefixes call and result and drops the default shell
     {},
   ) as Text;
   const callLine = call.render(80)[0] ?? "";
-  assert.match(callLine, /^  │ insert Makefile/);
+  assert.match(callLine, /^  insert Makefile/);
+  assert.doesNotMatch(callLine, /│/);
 
   const result = tool.renderResult?.(
     {

@@ -17,13 +17,13 @@ export const EDIT_PREVIEW_MAX_LINES = 6;
  *
  * - padded: 留 Pi 默认绿壳，只给 Text 加 paddingX=2
  * - self: 去绿壳，靠 Text padding 缩进
- * - rail: 去绿壳；标题（insert/replace）在轨道外，stats/diff 左缘 inset 后再画 muted `│ `
+ * - rail: 去绿壳；标题在轨道外，标题和 `│` 同一条左边线，整块 inset，不顶列 0
  *
  * 不要做成配置项。paddingY 必须保持 0，否则标题和 diff 会被撕开。
  */
 export type CompactEditChrome = "padded" | "self" | "rail";
 export const COMPACT_EDIT_CHROME: CompactEditChrome = "rail";
-/** rail 左缘到 `│` 的空格数。竖线到文字固定 `│ ` 那 1 格，左距必须更大。 */
+/** 标题和 `│` 共用的左缘。2 > `│ ` 到字的 1 格，也大于默认 Markdown outputPad=1。 */
 const RAIL_INSET_X = 2;
 
 const DIFF_CONTENT_MAX_CHARS = 120;
@@ -331,9 +331,9 @@ function applyCompactEditChrome(
 }
 
 function textCall(content: string): Text {
-  // rail：标题放轨道外面，不带 │、不 inset。paddingY 仍必须为 0。
+  // rail：标题不带 │，但跟轨道同一条左边线。paddingY 仍必须为 0。
   if (COMPACT_EDIT_CHROME === "rail") {
-    return new Text(content, 0, 0);
+    return new Text(content, RAIL_INSET_X, 0);
   }
   if (COMPACT_EDIT_CHROME === "padded" || COMPACT_EDIT_CHROME === "self") {
     return new Text(content, 2, 0);
