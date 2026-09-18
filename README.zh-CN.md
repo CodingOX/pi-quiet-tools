@@ -42,9 +42,11 @@
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) —— 开放账本为什么要走时钟，以及这部分渲染归谁
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) —— glue 为什么不再自己数那个三行窗口
 - [`docs/adr/0003-ui-host-watchdog.md`](./docs/adr/0003-ui-host-watchdog.md) —— 失控门禁为什么放在 glue，且只作用于 UI host
+- [`docs/adr/0004-child-session-watchdog.md`](./docs/adr/0004-child-session-watchdog.md) —— 子会话为什么有自己的账本，以及为什么交 `INCOMPLETE` 未完成卷而不是 host 式 nudge
 - [`CONTEXT.md`](./CONTEXT.md) —— 术语表：Tools 账本、开放账本、已结算账本、Open rows、静默工具、open elapsed、账本 receipt
 - [`docs/local-overlay.md`](./docs/local-overlay.md) —— 相对两个上游，本仓库添加、改动和优化了什么
 - [`docs/upstream-sync.md`](./docs/upstream-sync.md) —— 两个上游依赖的评估结论，以及同步会打断什么
+- [`CHANGELOG.md`](./CHANGELOG.md) —— 按日期里程碑记录，最新在最前
 
 ## 终端行为
 

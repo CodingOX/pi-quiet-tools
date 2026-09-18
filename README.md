@@ -40,9 +40,11 @@ Read the decisions and the shared vocabulary:
 - [`docs/adr/0001-open-ledger-liveness.md`](./docs/adr/0001-open-ledger-liveness.md) — why open ledgers tick and where that rendering lives
 - [`docs/adr/0002-silent-tools-share-open-rows.md`](./docs/adr/0002-silent-tools-share-open-rows.md) — why glue stopped re-counting the three-row window
 - [`docs/adr/0003-ui-host-watchdog.md`](./docs/adr/0003-ui-host-watchdog.md) — why the runaway gate lives in glue and only applies to the UI host
+- [`docs/adr/0004-child-session-watchdog.md`](./docs/adr/0004-child-session-watchdog.md) — why child sessions get their own ledger and an `INCOMPLETE` handoff instead of a host-style nudge
 - [`CONTEXT.md`](./CONTEXT.md) — glossary: Tools ledger, open ledger, settled ledger, Open rows, silent tool, visible edit tool, open elapsed, ledger receipt
 - [`docs/local-overlay.md`](./docs/local-overlay.md) — what this repo added, changed, and optimized on top of the two upstreams
 - [`docs/upstream-sync.md`](./docs/upstream-sync.md) — evaluated state of both upstream dependencies, and what a sync would break
+- [`CHANGELOG.md`](./CHANGELOG.md) — dated milestones, newest first
 
 ## Terminal behavior
 
