@@ -15,7 +15,7 @@ Recorded 2026-09-12 against hashline 2.6.1 and display-intent 0.9.0. Read this b
 
 | Layer | Location | Upstream at time of writing | Local | Sync behaviour |
 | --- | --- | --- | --- | --- |
-| `pi-hashline-edit-pro` | `vendor/hashline` | **4.3.4** | **4.2.5** | read-only mirror → `vendor-pull.sh` overwrites it |
+| `pi-hashline-edit-pro` | `vendor/hashline` | **4.3.4** | **4.3.4** | read-only mirror → `vendor-pull.sh` overwrites it |
 | `@zhcsyncer/pi-tool-display-intent` | `vendor/display-intent` | **0.10.0** | **0.9.0** + 14 fork-modified files | fork → `vendor-pull.sh` **only reports** |
 
 ```bash
@@ -28,8 +28,9 @@ overwriting it cannot lose anything. `vendor/display-intent` carries local-only 
 (`per-turn` ledger layout, the open-ledger tick, per-runtime owner lifecycle), so an automatic
 overwrite would destroy it silently — see [Three silent-failure landmines](#three-silent-failure-landmines).
 
-Hashline being 12 patch/minor versions behind is a **choice**, not drift: 4.2.6 → 4.3.4 landed inside
-six days, and 4.3.4's breakpoints have not been evaluated against the glue yet.
+Hashline is now level with upstream at **4.3.4** — the 4.2.5 → 4.3.4 gap was evaluated and
+closed on 2026-09-18. The move was a **choice** held open, not drift: 4.2.6 → 4.3.4 landed inside six
+days, and that ladder was left unevaluated until the evaluation below was actually run.
 
 ## Why hashline is worth migrating
 
@@ -41,6 +42,10 @@ six days, and 4.3.4's breakpoints have not been evaluated against the glue yet.
 | **3.0.0** | Anchor length **3 chars → 4 chars** | 🟠 `read` output shape changes |
 | 3.0.4 | Boundary, batch, and cache fixes | 🟢 Stability only |
 | 4.0.0–4.2.5 | Feature and fix releases | 🟢 Stability only |
+| 4.2.6 | Bun `bun:sqlite` fallback engine; `E_STORE_UNAVAILABLE`; `glob` support | 🟠 Fixes a load-level defect — see below |
+| 4.2.9 | Anchor registry becomes **per-session + `AsyncLocalStorage`**; NUL-byte guard | 🟠 The only seam that needed watching |
+| 4.3.0 | Adds `auto-read-all` (default `"off"`); removes `boundary-bypass.ts` | 🟢 Off by default; `boundary-bypass` was never referenced here |
+| 4.3.1–4.3.4 | Boundary, batch, and cache fixes | 🟢 Stability only |
 
 So the `exported tool names` and `anchor width` seams both moved, not just one.
 
@@ -52,7 +57,7 @@ So the `exported tool names` and `anchor width` seams both moved, not just one.
 change pi-hashline-edit-pro 2.6.1 => 2.8.4
 ```
 
-**The pin must stay exact.** While this repo sat on `^2.6.1`, a plain `npm update` (the `update:upstream` range mode) resolved to 2.8.4 — a version that had already renamed the tool — and silently broke the glue. The dependency is therefore pinned to `4.2.5` with no range. Keep it that way: move the pin deliberately, verify, and re-pin exactly.
+**The pin must stay exact.** While this repo sat on `^2.6.1`, a plain `npm update` (the `update:upstream` range mode) resolved to 2.8.4 — a version that had already renamed the tool — and silently broke the glue. The mirror is therefore pinned to an exact version (`4.3.4`) rather than a range. Keep it that way: move the pin deliberately, verify, and re-pin exactly.
 
 ### Capability gain
 
@@ -89,7 +94,7 @@ Beyond the rename:
 - Docs and tests referencing the old name were updated (`CONTEXT.md`, both READMEs, `AGENTS.md`, `config-seed.test.ts`).
 - The README's anchor example became 4 characters (`Dafo│`), matching `HASH_LEN = 4` in the new hashline.
 
-The built-in `edit` tool is still force-disabled in 4.2.5 (`setActiveTools((t) => t !== "edit")`), so that behaviour carried over unchanged.
+The built-in `edit` tool is still force-disabled in 4.3.4 (`setActiveTools((t) => t !== "edit")`), so that behaviour carried over unchanged.
 
 The 3→4 char anchor change stayed **narrower than it looked**: glue contains no parse of anchor width or shape. The `│` characters in `src` are Ctrl+O frame edges, not anchor separators, so no ledger predicate depended on anchor width. Only the README sample needed updating, because it is documentation of `read` output.
 
@@ -167,7 +172,48 @@ Worth noting: **upstream independently fixed the same bugs this fork fixed** —
 ### The remaining 0.10.0 value is UI polish
 
 Click-to-expand rows, a read-only Result/Args inspector with Metadata, Ctrl+O grouped by agent turn, a `ctx` growth receipt, and bounded head/tail steer previews. Real features, but they sit in the least stable part of the diff (mouse handling, viewport, widget order) while the quiet-ledger behaviour this repo cares about is already working.
+## The 4.2.5 → 4.3.4 evaluation (2026-09-18)
 
+Nine releases landed between 2026-09-11 and 2026-09-16 (`4.2.6`, `4.2.7`, `4.2.8`, `4.2.9`, `4.3.0`,
+`4.3.1`, `4.3.2`, `4.3.3`, `4.3.4`). Upstream publishes **no tags** — `git ls-remote --tags` is empty and
+the only branch is `master` — so the npm tarball is the only precise version source, which is what
+`vendor-pull.sh` already uses.
+
+The evaluation was run by unpacking both tarballs and diffing them, then dropping 4.3.4 into a copy of
+this repo and running the full gate. It was a **contract-compatible bump**:
+
+| Seam this repo touches | 4.2.5 → 4.3.4 |
+| --- | --- |
+| The five tool names | unchanged |
+| `HASH_LEN` | still `4` |
+| Diff fold thresholds | still 16 / 40 |
+| `tryResolveEditTarget` signature | unchanged — the compact-title seam is safe |
+| `buildEditToolSchema` / `buildInsertToolSchema` | same signature, `additionalProperties` still `true` before our lock |
+| `renderShell` / `renderCall` / `renderResult` | unchanged |
+| `anchor-registry` test exports | `allocateAnchor`, `freeAnchors`, `initRegistry`, `resetRegistryForTests` all present |
+| `package.json` `dependencies` | byte-identical — **no new runtime dependency**, so the root `dependencies` list needs no change |
+
+Nothing this repo references was removed: `boundary-bypass`, `normReq`, and `EditToolFlags` construction
+appear nowhere in `src/` or `index.ts`, and the only `details` field glue reads is `diff`, which survives.
+
+Two behaviour differences surfaced, and one is the reason the bump is worth taking:
+
+- 🔴 **4.2.5 cannot load under Bun at all.** `src/hash-store.ts` did a module-level
+  `await import("node:sqlite")` and `index.ts` imports it at the top level, so under a Bun host
+  (no `node:sqlite`; confirmed on Bun 1.3.14) the **entire extension fails to load**. 4.2.6+ probes for
+  `bun:sqlite` and degrades gracefully. This is latent here only because pi currently runs on Node.
+- 🟠 **The anchor registry became per-session (4.2.9), and that is strictly better for this repo.**
+  4.2.5 kept a single module-level `currentKey`; a child session's `session_start` overwrote it and the
+  host's anchors stayed unresolvable **for the rest of the session** (only `/reload` recovered). 4.3.4
+  scopes the registry with `AsyncLocalStorage`, so the host's own next tool call heals the lookup.
+  Both were reproduced with a probe against the real vendored module; neither is a complete fix —
+  between a child session coming up and the host's next call, the compact-title lookup can still
+  return `undefined` and fall back to `anchor→anchor` text. That is cosmetic (the title only) and
+  self-healing, and it is not a reason to hold the pin.
+
+Restating the shape of the fix for future syncs: 4.3.4 also added `auto-read-all` (a `before_agent_start`
+custom message, default `"off"`, so unreachable unless opted in) and removed `boundary-bypass.ts`.
+Neither is referenced by this repo.
 ## Facts verified, and how
 
 | Fact | How it was established |
@@ -182,12 +228,18 @@ Click-to-expand rows, a read-only Result/Args inspector with Metadata, Ctrl+O gr
 | `per-turn` absent upstream | `TOOL_CALL_LAYOUTS` at `upstream/main` is `["individual","aggregate"]` |
 | Submodule installs itself from GitHub | Isolated `PI_CODING_AGENT_DIR` install of `git:github.com/CodingOX/pi-quiet-tools`; submodule checked out, CLI exited 0 |
 | Exit code 0 on failure to install `github:` prefix form | Same isolated harness, `github:CodingOX/...` → `Path does not exist` |
+| 4.3.4 is contract-compatible | Unpacked both tarballs, replaced `vendor/hashline` in a repo copy, ran `npm run typecheck` + the full suite: 72 / 5 / 24 / 10 all pass |
+| The suite really loads 4.3.4 | A probe test resolved `pi-hashline-edit-pro/package.json` to `4.3.4` inside the tsx run |
+| Upstream has no tags | `git ls-remote --tags` → empty; only `refs/heads/master` |
+| Bun cannot load 4.2.5 | Bun 1.3.14: `import("node:sqlite")` → `No such built-in module`, and `src/hash-store.ts` is a top-level import of `index.ts` |
+| Child session poisons 4.2.5's lookup; 4.3.4 heals | Probe driving real `allocateAnchor` / `ownerOf` through two session contexts, run against both vendored versions |
+| `pi install git:...` lands a complete bundle | Isolated `PI_CODING_AGENT_DIR` install; all four bundled deps resolved and Pi's loader registered all ten tools |
 
 Inference, not verified: that 0.10.0's UI features would still be reachable after reworking `per-turn` on the new base. Judging the size of that work needs a fresh look at `aggregate-activity.ts` in 0.10.0, not an estimate from this record.
 
 ## When revisiting this
 
-Hashline is migrated. Display-intent remains deferred, and it is the only open item here.
+Hashline is migrated and sits level with upstream. Display-intent remains deferred, and it is the only open item here.
 
 For display-intent:
 
@@ -199,7 +251,7 @@ For display-intent:
 Re-run these to refresh the facts:
 
 ```bash
-npm run vendor:pull -- --check   # hashline drift vs display-intent fork delta, no writes
+npm run vendor:pull -- --check   # hashline drift (expected: none) vs display-intent fork delta, no writes
 git ls-remote --tags https://github.com/YuGiMob/pi-hashline-edit-pro.git | tail -5
 git ls-remote --heads https://github.com/CodingOX/pi-extensions.git   # fork branch still reachable
 ```

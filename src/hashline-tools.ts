@@ -10,6 +10,8 @@
  * - 2.6.x 及更早：read / replace / undo_last_replace
  * - 2.7.0 起：undo_last_replace 改名为 undo_last_change，并新增 insert、anchor_grep
  * - 3.0.0 起：锚点从 3 字符变成 4 字符（只影响 read 输出形态，glue 不解析锚点宽度）
+ * - 4.2.6–4.3.4：工具名一个都没变（已逐版核对）。这九个版本改的是存储引擎、
+ *   锚点注册表作用域和 auto-read-all，不触及本文件；升级因此是纯稳定性动作。
  *
  * 显示分层（同一份名单，两种终端待遇）：
  * - 静默：read / 搜索 / 撤销 —— 只进 Tools 账本计数

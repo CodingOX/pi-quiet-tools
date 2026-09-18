@@ -5,7 +5,7 @@
 
 ## pi-hashline-edit-pro
 
-- **版本**：4.2.5（本地镜像，未跟随上游 tag）
+- **版本**：4.3.4（本地镜像，未跟随上游 tag）
 - **上游**：https://github.com/YuGiMob/pi-hashline-edit-pro
 - **版权**：Copyright (c) 2026 RimuruW and Yugimob
 - **许可**：MIT —— 完整文本见 `vendor/hashline/LICENSE`

@@ -22,24 +22,27 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CHECK_ONLY=0
 FORCE=0
 TO_VERSION=""
-for arg in "$@"; do
-  case "$arg" in
+# 用 while + shift 而不是 for：for 在进入循环时就把 "$@" 展开成固定列表，
+# 循环体内 shift 无效，`--to 4.3.4` 的版本号会掉进 *) 变成「未知参数」。
+while [[ $# -gt 0 ]]; do
+  case "$1" in
   --check) CHECK_ONLY=1 ;;
   --force) FORCE=1 ;;
   --to)
-    shift
-    TO_VERSION="${1:-}"
+    TO_VERSION="${2:-}"
     [[ -n "$TO_VERSION" ]] || { echo "--to 需要一个版本号，如 --to 4.3.4" >&2; exit 1; }
+    shift
     ;;
   -h | --help)
     sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
   *)
-    echo "Unknown argument: $arg" >&2
+    echo "Unknown argument: $1" >&2
     exit 1
     ;;
   esac
+  shift
 done
 
 command -v rsync >/dev/null 2>&1 || {
