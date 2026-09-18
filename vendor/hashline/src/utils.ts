@@ -1,3 +1,5 @@
+import { NUL_CONTENT_MSG } from "./constants";
+
 export function isRec(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -18,16 +20,26 @@ export function normalizeAnchors(record: Record<string, unknown>): void {
     record.remove_to = record.replace_to;
     delete record.replace_to;
   }
+  if (typeof record.remove_from !== "string" && typeof record.from === "string") {
+    record.remove_from = record.from;
+    delete record.from;
+  }
+  if (typeof record.remove_to !== "string" && typeof record.to === "string") {
+    record.remove_to = record.to;
+    delete record.to;
+  }
+}
+
+export function normalizeRequest(input: unknown): unknown {
+  if (!isRec(input)) return input;
+  const record: Record<string, unknown> = { ...input };
+  normalizeFilePath(record);
+  normalizeAnchors(record);
+  return record;
 }
 
 export function makePrepareArguments(): (args: unknown) => any {
-  return (args) => {
-    if (!isRec(args)) return args;
-    const record = { ...args };
-    normalizeFilePath(record);
-    normalizeAnchors(record);
-    return record;
-  };
+  return normalizeRequest;
 }
 
 export function splitLines(text: string): string[] {
@@ -72,6 +84,10 @@ export function cntDiff(diff: string, marker: "+" | "-"): number {
 
 export function abortIf(signal?: AbortSignal): void {
   if (signal?.aborted) throw new Error("Operation aborted");
+}
+
+export function assertNoNul(lines: string[]): void {
+  if (lines.some((line) => line.includes("\0"))) throw new Error(NUL_CONTENT_MSG);
 }
 
 export function errCode(error: unknown): string | undefined {
@@ -129,7 +145,7 @@ export function isHashRow(line: string): boolean {
 	return /^[A-Za-z0-9]{4}│/.test(line);
 }
 
-function gutterWidth(max: number, fallback: number): number {
+export function gutterWidth(max: number, fallback: number): number {
 	return String(max || fallback).length;
 }
 
@@ -181,83 +197,116 @@ function formatLineLimit(displayPath: string, limit: number, count: number | und
 	return `[E_FILE_TOO_LARGE] ${displayPath} ${detail} lines, exceeding the ${limit}-line hashline limit. For very large files, use write.`;
 }
 
-function escapeRawControl(value: string): string {
-	if (value === "\b") return "\\b";
-	if (value === "\t") return "\\t";
-	if (value === "\n") return "\\n";
-	if (value === "\f") return "\\f";
-	if (value === "\r") return "\\r";
-	const hex = value.charCodeAt(0).toString(16).padStart(4, "0");
-	return `\\u${hex}`;
+function stripCodeFence(text: string): string {
+	const trimmed = text.trim();
+	const fenced = /^```[^\n]*\n([\s\S]*?)\n?```$/.exec(trimmed);
+	return fenced ? fenced[1]!.trim() : trimmed;
 }
 
-function escapeControls(value: string): string {
-	let out = "";
-	for (const char of value) {
-		out += char.charCodeAt(0) < 32 ? escapeRawControl(char) : char;
-	}
-	return out;
-}
-
-function decodeArraySegment(segment: string): string | undefined {
-	const trimmed = segment.trim();
-	if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"')) return undefined;
+function jsonStringArray(text: string): string[] | undefined {
 	try {
-		const cleaned = escapeControls(trimmed);
-		const parsed: unknown = JSON.parse(cleaned);
-		return typeof parsed === "string" ? parsed : undefined;
+		const parsed: unknown = JSON.parse(text);
+		if (Array.isArray(parsed) && parsed.every((entry) => typeof entry === "string")) {
+			return parsed as string[];
+		}
 	} catch {
-		return undefined;
+	}
+	return undefined;
+}
+
+function decodeEscape(char: string): string | undefined {
+	switch (char) {
+		case "\"": return "\"";
+		case "'": return "'";
+		case "\\": return "\\";
+		case "/": return "/";
+		case "b": return "\b";
+		case "f": return "\f";
+		case "n": return "\n";
+		case "r": return "\r";
+		case "t": return "\t";
+		default: return undefined;
 	}
 }
 
-function splitArraySegments(inner: string): string[] | undefined {
-	const segments: string[] = [];
-	let current = "";
-	let inQuotes = false;
-	let escaped = false;
-	for (const char of inner) {
-		if (inQuotes) {
-			current += char;
-			if (escaped) escaped = false;
-			else if (char === "\\") escaped = true;
-			else if (char === '"') inQuotes = false;
+function scanQuotedSegment(inner: string, start: number): { value: string; next: number } | undefined {
+	const quote = inner[start]!;
+	let out = "";
+	let index = start + 1;
+	while (index < inner.length) {
+		const char = inner[index]!;
+		if (char === "\\") {
+			const escaped = inner[index + 1];
+			if (escaped === undefined) return undefined;
+			if (escaped === "u") {
+				const hex = inner.slice(index + 2, index + 6);
+				if (!/^[0-9a-fA-F]{4}$/.test(hex)) return undefined;
+				out += String.fromCharCode(Number.parseInt(hex, 16));
+				index += 6;
+				continue;
+			}
+			const decoded = decodeEscape(escaped);
+			if (decoded === undefined) return undefined;
+			out += decoded;
+			index += 2;
 			continue;
 		}
-		if (char === '"') {
-			inQuotes = true;
-			current += char;
-			continue;
-		}
-		if (char === ",") {
-			segments.push(current);
-			current = "";
-			continue;
-		}
-		current += char;
+		if (char === quote) return { value: out, next: index + 1 };
+		out += char;
+		index += 1;
 	}
-	if (inQuotes || escaped) return undefined;
-	segments.push(current);
-	return segments;
+	return undefined;
+}
+
+function scanArrayText(inner: string): string[] | undefined {
+	const values: string[] = [];
+	let index = 0;
+	while (index < inner.length && /\s/.test(inner[index]!)) index += 1;
+	if (index >= inner.length) return [];
+	for (;;) {
+		if (inner[index] !== "\"" && inner[index] !== "'") return undefined;
+		const segment = scanQuotedSegment(inner, index);
+		if (!segment) return undefined;
+		values.push(segment.value);
+		index = segment.next;
+		while (index < inner.length && /\s/.test(inner[index]!)) index += 1;
+		if (index >= inner.length) return values;
+		if (inner[index] !== ",") return undefined;
+		index += 1;
+		while (index < inner.length && /\s/.test(inner[index]!)) index += 1;
+		if (index >= inner.length) return values;
+	}
 }
 
 function decodeArrayText(value: unknown): string[] | undefined {
 	if (typeof value !== "string") return undefined;
-	const trimmed = value.trim();
+	const trimmed = stripCodeFence(value);
 	if (!trimmed.startsWith("[") || !trimmed.endsWith("]")) return undefined;
-	const segments = splitArraySegments(trimmed.slice(1, -1));
-	if (!segments) return undefined;
-	const decoded: string[] = [];
-	for (const segment of segments) {
-		const part = decodeArraySegment(segment);
-		if (part === undefined) return undefined;
-		decoded.push(part);
-	}
-	return decoded.length > 0 ? decoded : undefined;
+	const decoded = jsonStringArray(trimmed);
+	if (decoded !== undefined && decoded.length > 0) return decoded;
+	const scanned = scanArrayText(trimmed.slice(1, -1));
+	return scanned !== undefined && scanned.length > 0 ? scanned : undefined;
 }
 
-export function decodeStringArray(value: unknown): string[] | undefined {
-	if (typeof value === "string") return decodeArrayText(value);
-	if (Array.isArray(value) && value.length === 1) return decodeArrayText(value[0]);
+function looksLikeStringArray(value: unknown): boolean {
+	if (typeof value !== "string") return false;
+	const trimmed = stripCodeFence(value);
+	return trimmed.endsWith("]") && /^\[\s*['"]/.test(trimmed);
+}
+
+export function decodeStringArray(value: unknown, warnings?: string[], label = "replacement_lines"): string[] | undefined {
+	const candidate = typeof value === "string"
+		? value
+		: Array.isArray(value) && value.length === 1 && typeof value[0] === "string"
+			? value[0]
+			: undefined;
+	if (candidate === undefined) return undefined;
+	const decoded = decodeArrayText(candidate);
+	if (decoded !== undefined) {
+		return decoded;
+	}
+	if (looksLikeStringArray(candidate)) {
+		warnings?.push(`[W_BAD_SHAPE] ${label} looked like a JSON array but could not be parsed; kept as one literal line: ${clipLine(candidate, 60)}`);
+	}
 	return undefined;
 }

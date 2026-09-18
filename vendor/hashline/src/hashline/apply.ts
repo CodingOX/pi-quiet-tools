@@ -179,14 +179,14 @@ export function planEdit(
 ): PlannedEdit {
   const signal = options?.signal;
   abortIf(signal);
-  const fileLines = options?.baseFileLines ?? buildIdx(content).fileLines;
+  const fileLines = options?.baseFileLines ?? splitLines(content);
   const lineIndex = { fileLines };
   const fileHashes = precomputedHashes;
   const warnings: string[] = [];
 
-  const rangeFixed = swapReversedRanges(edit, fileHashes, warnings);
+  const rangeFixed = swapReversedRanges(edit, fileHashes);
   const prefixFixed = stripDiffPrefixes(
-    stripBarePrefixes(rangeFixed, fileHashes, warnings),
+    stripBarePrefixes(rangeFixed, warnings),
     warnings,
   );
 

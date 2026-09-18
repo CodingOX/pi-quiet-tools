@@ -3,30 +3,28 @@ import { existsSync } from "node:fs";
 import { chmod, readFile, rename, mkdir, stat } from "node:fs/promises";
 import { hashStorePath, hashStoreDir, legacyHashStorePath } from "./paths";
 import { errCode, isRec, splitLines } from "./utils";
-import { initHasher, contentChecksum } from "./hashline/hasher";
+import { initHasher, contentChecksum, lineChecksum } from "./hashline/hasher";
 import { HASH_STORE_VERSION, HASH_STORE_BUSY_TIMEOUT } from "./constants";
 import {
   isValidHashList,
-  isValidServedMap,
   parseStoredHashes,
-  parseStoredServed,
   isValidSnapshot,
   isCorruptionError,
   parseHashList,
-  parseServedMap,
 } from "./hash-store/validation";
 import {
   withBusyRetry,
   retriedWrite,
-  openDbWithBusyRetryAsync,
+  withBusyRetryAsync,
 } from "./hash-store/retry";
-import { snapshotCache, cacheSnapshot, SNAPSHOT_CACHE_LIMIT, touchSession, clearSession, forgetSession } from "./hash-store/cache";
+import { snapshotCache, cacheSnapshot, SNAPSHOT_CACHE_LIMIT } from "./hash-store/cache";
 
-export { isValidHashList, isValidServedMap, parseHashList, parseServedMap, parseStoredHashes, parseStoredServed, isCorruptionError };
+export { isValidHashList, parseHashList, parseStoredHashes, isCorruptionError };
 export { SNAPSHOT_CACHE_LIMIT };
 export const STORE_NOT_OPEN_MESSAGE = "Hash store is not open; transactional update aborted";
+export const STORE_SHUT_DOWN_MESSAGE = "Hash store was shut down while it was opening; call loadHashStore again.";
 
-type SqlParams = (string | number)[];
+type SqlParams = (string | number | null)[];
 
 interface RawStatement {
   get(...params: SqlParams): unknown;
@@ -39,10 +37,81 @@ interface RawDb {
   close(): void;
   readonly isOpen: boolean;
 }
-export type SqliteEngine = "node:sqlite";
-const sqliteEngine: SqliteEngine = "node:sqlite";
-const { DatabaseSync } = await import("node:sqlite");
-const openDbFn = (path: string): RawDb => new DatabaseSync(path, { timeout: HASH_STORE_BUSY_TIMEOUT }) as unknown as RawDb;
+export type SqliteEngine = "node:sqlite" | "bun:sqlite";
+
+interface BunStatementLike {
+  get(...params: SqlParams): unknown;
+  all(...params: SqlParams): unknown[];
+  run(...params: SqlParams): unknown;
+}
+
+interface BunDbLike {
+  exec(sql: string): void;
+  prepare(sql: string): BunStatementLike;
+  close(): void;
+}
+
+function wrapBunDatabase(mod: { Database: new (path: string) => BunDbLike }): (path: string) => RawDb {
+  return (path) => {
+    const db = new mod.Database(path);
+    db.exec(`PRAGMA busy_timeout = ${HASH_STORE_BUSY_TIMEOUT}`);
+    let closed = false;
+    return {
+      exec: (sql) => db.exec(sql),
+      prepare: (sql) => {
+        const stmt = db.prepare(sql);
+        return {
+          get: (...params) => stmt.get(...params) ?? undefined,
+          all: (...params) => stmt.all(...params),
+          run: (...params) => stmt.run(...params),
+        };
+      },
+      close: () => {
+        if (!closed) {
+          closed = true;
+          db.close();
+        }
+      },
+      get isOpen() {
+        return !closed;
+      },
+    };
+  };
+}
+
+async function loadNodeEngine(): Promise<{ engine: SqliteEngine; open: (path: string) => RawDb }> {
+  const { DatabaseSync } = await import("node:sqlite");
+  return {
+    engine: "node:sqlite",
+    open: (path) => new DatabaseSync(path, { timeout: HASH_STORE_BUSY_TIMEOUT }) as unknown as RawDb,
+  };
+}
+
+async function loadBunEngine(): Promise<{ engine: SqliteEngine; open: (path: string) => RawDb }> {
+  const specifier = "bun:sqlite";
+  const mod = await import(specifier) as { Database: new (path: string) => BunDbLike };
+  return { engine: "bun:sqlite", open: wrapBunDatabase(mod) };
+}
+
+const isBunRuntime = typeof process !== "undefined" && typeof (process.versions as Record<string, string | undefined>).bun === "string";
+
+async function selectSqliteEngine(): Promise<{ engine: SqliteEngine; open: (path: string) => RawDb }> {
+  const candidates = isBunRuntime ? [loadBunEngine, loadNodeEngine] : [loadNodeEngine, loadBunEngine];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return await candidate();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  const detail = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new Error(`[E_STORE_UNAVAILABLE] No SQLite runtime available (node:sqlite and bun:sqlite both failed to load): ${detail}`);
+}
+
+const selectedEngine = await selectSqliteEngine();
+const sqliteEngine: SqliteEngine = selectedEngine.engine;
+const openDbFn = selectedEngine.open;
 
 interface Prepared {
   get: (...params: SqlParams) => Record<string, unknown> | undefined;
@@ -69,20 +138,22 @@ export interface UndoRecord {
   ending: string;
   hashes: string[];
   resultContent: string;
+  mode?: number;
 }
 
 let cachedDb: { path: string; db: RawDb; stmts: Prepared } | null = null;
 let opening: { path: string; promise: Promise<HashStore> } | null = null;
 let exitHandlerRegistered = false;
+let storeEpoch = 0;
+const liveDbs = new Set<RawDb>();
 
 function openDb(storePath: string): { db: RawDb; stmts: Prepared } {
   const db = openDbFn(storePath);
+  liveDbs.add(db);
   try {
     return buildStore(db);
   } catch (error) {
-    try {
-      db.close();
-    } catch {}
+    shutdownDb(db);
     throw error;
   }
 }
@@ -119,6 +190,9 @@ function buildStore(db: RawDb): { db: RawDb; stmts: Prepared } {
   try {
     db.exec("ALTER TABLE snapshots ADD COLUMN line_checksums TEXT");
   } catch {}
+  try {
+    db.exec("ALTER TABLE undo ADD COLUMN mode INTEGER");
+  } catch {}
   const versionRow = db.prepare("SELECT value FROM meta WHERE key = 'version'").get() as { value?: string } | undefined;
   if (versionRow && versionRow.value !== String(HASH_STORE_VERSION)) {
     db.exec("DELETE FROM snapshots");
@@ -138,11 +212,11 @@ function buildStore(db: RawDb): { db: RawDb; stmts: Prepared } {
     "ON CONFLICT(path) DO UPDATE SET checksum = excluded.checksum, line_count = excluded.line_count, hashes = excluded.hashes, line_checksums = excluded.line_checksums, updated_at = excluded.updated_at"
   );
   const undoUpsertStmt = db.prepare(
-    "INSERT INTO undo (path, content, bom, ending, hashes, result_content, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) " +
-    "ON CONFLICT(path) DO UPDATE SET content = excluded.content, bom = excluded.bom, ending = excluded.ending, hashes = excluded.hashes, result_content = excluded.result_content, updated_at = excluded.updated_at"
+    "INSERT INTO undo (path, content, bom, ending, hashes, result_content, mode, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+    "ON CONFLICT(path) DO UPDATE SET content = excluded.content, bom = excluded.bom, ending = excluded.ending, hashes = excluded.hashes, result_content = excluded.result_content, mode = excluded.mode, updated_at = excluded.updated_at"
   );
   const undoGetStmt = db.prepare(
-    "SELECT content, bom, ending, hashes, result_content FROM undo WHERE path = ?"
+    "SELECT content, bom, ending, hashes, result_content, mode FROM undo WHERE path = ?"
   );
   const undoDelStmt = db.prepare("DELETE FROM undo WHERE path = ?");
   const snapshotTimeStmt = db.prepare("SELECT updated_at FROM snapshots WHERE path = ?");
@@ -187,11 +261,15 @@ async function quarantineStore(storePath: string): Promise<void> {
 }
 
 function shutdownDb(db: RawDb): void {
+  if (!liveDbs.delete(db)) return;
   try {
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   } catch {
   }
-  db.close();
+  try {
+    db.close();
+  } catch {
+  }
 }
 
 async function openStore(storePath: string): Promise<HashStore> {
@@ -199,6 +277,7 @@ async function openStore(storePath: string): Promise<HashStore> {
     return { stmts: cachedDb.stmts, engine: sqliteEngine };
   }
   if (cachedDb) shutdownHashStore();
+  const epoch = storeEpoch;
   await initHasher();
   await mkdir(hashStoreDir(), { recursive: true, mode: 0o700 });
   if (process.platform !== "win32") {
@@ -208,19 +287,19 @@ async function openStore(storePath: string): Promise<HashStore> {
   let existed = existsSync(storePath);
   let opened: { db: RawDb; stmts: Prepared };
   try {
-    opened = await openDbWithBusyRetryAsync(() => openDb(storePath));
+    opened = await withBusyRetryAsync(() => openDb(storePath));
   } catch (error) {
     if (!isCorruptionError(error)) throw error;
     console.error("Hash store failed to open, rebuilding:", error);
     await quarantineStore(storePath);
     existed = false;
-    opened = await openDbWithBusyRetryAsync(() => openDb(storePath));
+    opened = await withBusyRetryAsync(() => openDb(storePath));
   }
   if (!isHealthy(opened.db)) {
     shutdownDb(opened.db);
     await quarantineStore(storePath);
     existed = false;
-    opened = await openDbWithBusyRetryAsync(() => openDb(storePath));
+    opened = await withBusyRetryAsync(() => openDb(storePath));
   }
   const { db, stmts } = opened;
   try {
@@ -255,6 +334,10 @@ async function openStore(storePath: string): Promise<HashStore> {
       console.error("Hash store migration failed; continuing without legacy import:", error);
     }
   }
+  if (storeEpoch !== epoch) {
+    shutdownDb(db);
+    throw new Error(STORE_SHUT_DOWN_MESSAGE);
+  }
   cachedDb = { path: storePath, db, stmts };
 
   if (!exitHandlerRegistered) {
@@ -280,35 +363,41 @@ export function loadHashStore(): Promise<HashStore> {
     return opening.promise;
   }
   const promise = openStore(storePath).finally(() => {
-    if (opening?.path === storePath) opening = null;
+    if (opening?.promise === promise) opening = null;
   });
   opening = { path: storePath, promise };
   return promise;
 }
 
 export function shutdownHashStore(): void {
+  storeEpoch += 1;
   if (cachedDb) {
     shutdownDb(cachedDb.db);
     cachedDb = null;
   }
+  for (const db of [...liveDbs]) shutdownDb(db);
+  opening = null;
   snapshotCache.clear();
-  clearSession();
+}
+
+function withTransaction(db: RawDb, fn: () => void): void {
+  withBusyRetry(() => {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      fn();
+      db.exec("COMMIT");
+    } catch (e) {
+      try { db.exec("ROLLBACK"); } catch {}
+      throw e;
+    }
+  });
 }
 
 export function withStore(fn: () => void): void {
   if (!cachedDb || !cachedDb.db.isOpen) {
     throw new Error(STORE_NOT_OPEN_MESSAGE);
   }
-  withBusyRetry(() => {
-    cachedDb!.db.exec("BEGIN IMMEDIATE");
-    try {
-      fn();
-      cachedDb!.db.exec("COMMIT");
-    } catch (e) {
-      try { cachedDb!.db.exec("ROLLBACK"); } catch {}
-      throw e;
-    }
-  });
+  withTransaction(cachedDb.db, fn);
 }
 
 async function migrateLegacy(db: RawDb): Promise<void> {
@@ -351,23 +440,16 @@ async function migrateLegacy(db: RawDb): Promise<void> {
       contentChecksum(value.content),
       splitLines(value.content).length,
       JSON.stringify(value.hashes),
-      "",
+      JSON.stringify(splitLines(value.content).map(lineChecksum)),
       Date.now(),
     ]);
   }
   if (rows.length > 0) {
-    withBusyRetry(() => {
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const stmt = db.prepare(
-          "INSERT OR REPLACE INTO snapshots (path, checksum, line_count, hashes, line_checksums, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
-        );
-        for (const row of rows) stmt.run(...row);
-        db.exec("COMMIT");
-      } catch (e) {
-        try { db.exec("ROLLBACK"); } catch {}
-        throw e;
-      }
+    withTransaction(db, () => {
+      const stmt = db.prepare(
+        "INSERT OR REPLACE INTO snapshots (path, checksum, line_count, hashes, line_checksums, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
+      );
+      for (const row of rows) stmt.run(...row);
     });
   }
 
@@ -412,7 +494,6 @@ export function upsertSnapshot(
 ): void {
   store.stmts.upsert(path, checksum, lineCount, JSON.stringify(hashes), lineChecksums ? JSON.stringify(lineChecksums) : "", Date.now());
   cacheSnapshot(path, checksum, lineCount, hashes);
-  touchSession(path);
 }
 export function persistSnapshot(
   store: HashStore,
@@ -462,9 +543,9 @@ export function upsertUndo(store: HashStore, path: string, entry: UndoRecord): v
     entry.ending,
     JSON.stringify(entry.hashes),
     entry.resultContent,
+    typeof entry.mode === "number" ? entry.mode : null,
     Date.now(),
   );
-  touchSession(path);
 }
 
 export function getUndoEntry(store: HashStore, path: string): UndoRecord | undefined {
@@ -478,6 +559,7 @@ export function getUndoEntry(store: HashStore, path: string): UndoRecord | undef
     ending: row.ending as string,
     hashes: parsed,
     resultContent: row.result_content as string,
+    ...(typeof row.mode === "number" ? { mode: row.mode } : {}),
   };
 }
 
@@ -523,7 +605,6 @@ export async function pruneMissing(store: HashStore): Promise<string[]> {
     }
   });
   for (const path of missing) snapshotCache.delete(path);
-  for (const path of missing) forgetSession(path);
   return missing;
 }
 

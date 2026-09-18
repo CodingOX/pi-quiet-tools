@@ -1,19 +1,19 @@
 import { constants } from "node:fs";
-import { open } from "node:fs/promises";
+import { open, stat } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { loadHashStore, persistSnapshot, upsertUndo, getUndoEntry, deleteUndo, type UndoRecord } from "./hash-store";
-import { servedHashesFromDiff, buildServedMap } from "./served";
-import { contentChecksum } from "./hashline/hasher";
-import { hashSource } from "./hashline";
-import { markServed as markServedScoped, freeAnchors, adoptAnchors } from "./anchor-registry";
+import { servedHashesFromDiff, serveRows } from "./served";
+import { lineChecksum } from "./hashline";
+import { freeAnchors, adoptAnchors, withAnchorSession } from "./anchor-registry";
 import { resolveInCwd, writeAtomic, type FileIdentity } from "./fs-write";
 import { toLF, stripBOM, restoreEndings, type LineEnding } from "./normalize";
 import { genDiff, genPatch, spansFromHashes } from "./replace-diff";
 import { getDiffContextLines } from "./config";
 import { cntDiff, errCode, makePrepareArguments, splitLines } from "./utils";
 import { loadP, loadGuide } from "./prompts";
+import { withUndoPrompts, DEFAULT_EDIT_FLAGS, type EditToolFlags } from "./edit-common";
 import { buildMetrics } from "./replace-response";
 import { renderEditResult, fmtCall } from "./replace-render";
 import { Text } from "@earendil-works/pi-tui";
@@ -24,6 +24,7 @@ export interface UndoEntry {
   originalEnding: LineEnding;
   hashes: string[];
   resultContent: string;
+  mode?: number;
 }
 
 export async function saveUndo(
@@ -34,12 +35,18 @@ export async function saveUndo(
   try {
     const store = await loadHashStore();
     previous = getUndoEntry(store, path);
+    let mode: number | undefined;
+    try {
+      mode = (await stat(path)).mode & 0o7777;
+    } catch {
+    }
     upsertUndo(store, path, {
       content: entry.content,
       bom: entry.bom,
       ending: entry.originalEnding,
       hashes: entry.hashes,
       resultContent: entry.resultContent,
+      ...(mode !== undefined ? { mode } : {}),
     });
   } catch (error) {
     console.error("Failed to persist undo entry:", error);
@@ -75,6 +82,7 @@ export async function getUndo(path: string): Promise<UndoEntry | undefined> {
       originalEnding,
       hashes: record.hashes,
       resultContent: record.resultContent,
+      ...(record.mode !== undefined ? { mode: record.mode } : {}),
     };
   } catch (error) {
     console.error("Failed to load undo entry:", error);
@@ -91,13 +99,22 @@ export async function clearUndo(path: string): Promise<void> {
   }
 }
 
-export function regUndo(pi: ExtensionAPI): void {
+function fallbackFileMode(): number {
+  return 0o666 & ~process.umask();
+}
+
+export function regUndo(pi: ExtensionAPI, flags: EditToolFlags = DEFAULT_EDIT_FLAGS): void {
+  const prompted = withUndoPrompts({
+    description: loadP("../prompts/undo-last-change.md"),
+    snippet: loadP("../prompts/undo-last-change-snippet.md"),
+    guidelines: loadGuide("../prompts/undo-last-change-guidelines.md"),
+  }, flags);
   pi.registerTool({
     name: "undo_last_change",
     label: "Undo Last Change",
-    description: loadP("../prompts/undo-last-change.md"),
-    promptSnippet: loadP("../prompts/undo-last-change-snippet.md"),
-    promptGuidelines: loadGuide("../prompts/undo-last-change-guidelines.md"),
+    description: prompted.description,
+    promptSnippet: prompted.snippet,
+    promptGuidelines: prompted.guidelines,
     prepareArguments: makePrepareArguments(),
     parameters: Type.Object({
       path: Type.String({
@@ -114,52 +131,20 @@ export function regUndo(pi: ExtensionAPI): void {
       return renderEditResult(result as never, opts as { isPartial: boolean; expanded?: boolean }, theme as never, context as never);
     },
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-      const path = params.path;
-      if (typeof path !== "string" || path.length === 0) {
-        throw new Error('[E_BAD_SHAPE] Undo request requires a non-empty "path" string.');
-      }
-      const { resolved: mutationTargetPath } = await resolveInCwd(path, ctx.cwd);
-
-      const undo = await getUndo(mutationTargetPath);
-      if (!undo) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `No undo history for ${path}.`,
-            },
-          ],
-          isError: true,
-          details: {},
-        };
-      }
-
-      return withFileMutationQueue(mutationTargetPath, async () => {
-        let currentRaw: string | undefined;
-        let currentIdentity: FileIdentity | undefined;
-        try {
-          const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
-          const handle = await open(mutationTargetPath, constants.O_RDONLY | noFollow);
-          try {
-            const { dev, ino } = await handle.stat();
-            currentIdentity = { dev, ino };
-            currentRaw = await handle.readFile("utf-8");
-          } finally {
-            await handle.close();
-          }
-        } catch (error) {
-          if (errCode(error) !== "ENOENT") throw error;
+      return withAnchorSession(ctx, async () => {
+        const path = params.path;
+        if (typeof path !== "string" || path.length === 0) {
+          throw new Error('[E_BAD_SHAPE] Undo request requires a non-empty "path" string.');
         }
+        const { resolved: mutationTargetPath } = await resolveInCwd(path, ctx.cwd);
 
-        if (
-          currentRaw !== undefined &&
-          currentRaw !== undo.bom + restoreEndings(undo.resultContent, undo.originalEnding)
-        ) {
+        const undo = await getUndo(mutationTargetPath);
+        if (!undo) {
           return {
             content: [
               {
                 type: "text",
-                text: `[E_UNDO_STALE] Cannot undo last change on ${path}: the file was modified after the edit, so nothing was reverted. The current content already contains your applied edit plus that external change and is most likely the correct state. Do not modify the file to make an undo possible and do not revert your own edit. The undo record is kept. Call read() to verify the current state, then stop.`
+                text: `No undo history for ${path}.`,
               },
             ],
             isError: true,
@@ -167,82 +152,118 @@ export function regUndo(pi: ExtensionAPI): void {
           };
         }
 
-        await writeAtomic(
-          mutationTargetPath,
-          undo.bom + restoreEndings(undo.content, undo.originalEnding),
-          currentIdentity,
-        );
+        return withFileMutationQueue(mutationTargetPath, async () => {
+          let currentRaw: string | undefined;
+          let currentIdentity: FileIdentity | undefined;
+          try {
+            const noFollow = process.platform === "win32" ? 0 : constants.O_NOFOLLOW;
+            const handle = await open(mutationTargetPath, constants.O_RDONLY | noFollow);
+            try {
+              const { dev, ino } = await handle.stat();
+              currentIdentity = { dev, ino };
+              currentRaw = await handle.readFile("utf-8");
+            } finally {
+              await handle.close();
+            }
+          } catch (error) {
+            if (errCode(error) !== "ENOENT") throw error;
+          }
 
-        const currentNormalized = currentRaw === undefined ? "" : toLF(stripBOM(currentRaw).text);
-        const currentHashes = await lineHashes(currentNormalized, mutationTargetPath);
-        const diffResult = genDiff(undo.content, undo.resultContent, 0, undefined, undo.hashes, { unlimited: true });
-        const linesAddedByReplace = cntDiff(diffResult.diff, "+");
-        const linesRemovedByReplace = cntDiff(diffResult.diff, "-");
-        const restoredRange = changedRange(currentNormalized, undo.content);
-        const undoSpans = spansFromHashes(currentHashes, undo.hashes);
-        const undoDiffResult = genDiff(currentNormalized, undo.content, await getDiffContextLines(), undo.hashes, currentHashes, undefined, undoSpans);
-        const undoDiff = undoDiffResult.diff;
+          if (
+            currentRaw !== undefined &&
+            currentRaw !== undo.bom + restoreEndings(undo.resultContent, undo.originalEnding)
+          ) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `[E_UNDO_STALE] Cannot undo last change on ${path}: the file was modified after the edit, so nothing was reverted and the file was left untouched. The undo record is kept. Do not edit the file to force the undo. Call read() to inspect the current state.`
+                },
+              ],
+              isError: true,
+              details: {},
+            };
+          }
 
-        try {
-          const store = await loadHashStore();
-          const undoLines = splitLines(undo.content);
-          persistSnapshot(store, mutationTargetPath, undo.content, undo.hashes, undoLines.map((line) => contentChecksum(hashSource(line))));
-          freeAnchors(mutationTargetPath);
-          adoptAnchors(
+          await writeAtomic(
             mutationTargetPath,
-            new Map(undoLines.map((line, i) => [undo.hashes[i]!, contentChecksum(hashSource(line))])),
+            undo.bom + restoreEndings(undo.content, undo.originalEnding),
+            currentIdentity,
+            undo.mode ?? fallbackFileMode(),
           );
-          markServedScoped(
-            mutationTargetPath,
-            buildServedMap(undo.hashes, undoLines, servedHashesFromDiff(undoDiff)),
-            new Set(undo.hashes),
-          );
-        } catch (error) {
-          console.error("Failed to restore hash store snapshot after undo:", error);
-        }
 
-        await clearUndo(mutationTargetPath);
+          const currentNormalized = currentRaw === undefined ? "" : toLF(stripBOM(currentRaw).text);
+          const currentHashes = await lineHashes(currentNormalized, mutationTargetPath);
+          const diffResult = genDiff(undo.content, undo.resultContent, 0, undefined, undo.hashes, { unlimited: true });
+          const linesAddedByReplace = cntDiff(diffResult.diff, "+");
+          const linesRemovedByReplace = cntDiff(diffResult.diff, "-");
+          const restoredRange = changedRange(currentNormalized, undo.content);
+          const undoSpans = spansFromHashes(currentHashes, undo.hashes);
+          const undoDiffResult = genDiff(currentNormalized, undo.content, await getDiffContextLines(), undo.hashes, currentHashes, undefined, undoSpans);
+          const undoDiff = undoDiffResult.diff;
 
-        const parts: string[] = [
-          `Undone last change on ${path}.`,
-        ];
-        if (currentRaw === undefined) {
-          parts.push("The file was deleted; restored it from undo history.");
-        }
-        if (linesAddedByReplace > 0 || linesRemovedByReplace > 0) {
+          try {
+            const store = await loadHashStore();
+            const undoLines = splitLines(undo.content);
+            persistSnapshot(store, mutationTargetPath, undo.content, undo.hashes, undoLines.map(lineChecksum));
+            freeAnchors(mutationTargetPath);
+            adoptAnchors(
+              mutationTargetPath,
+              new Map(undoLines.map((line, i) => [undo.hashes[i]!, lineChecksum(line)])),
+            );
+            serveRows(
+              mutationTargetPath,
+              undo.hashes,
+              undoLines,
+              servedHashesFromDiff(undoDiff),
+            );
+          } catch (error) {
+            console.error("Failed to restore hash store snapshot after undo:", error);
+          }
+
+          await clearUndo(mutationTargetPath);
+
+          const parts: string[] = [
+            `Undone last change on ${path}.`,
+          ];
+          if (currentRaw === undefined) {
+            parts.push("The file was deleted; restored it from undo history.");
+          }
+          if (linesAddedByReplace > 0 || linesRemovedByReplace > 0) {
+            parts.push(
+              `Removed ${linesAddedByReplace} line(s), restored ${linesRemovedByReplace} line(s).`,
+            );
+          }
           parts.push(
-            `Removed ${linesAddedByReplace} line(s), restored ${linesRemovedByReplace} line(s).`,
+            "Call read for fresh anchors.",
           );
-        }
-        parts.push(
-          "Call read for fresh anchors.",
-        );
 
-        const patchResult = genPatch(path, currentNormalized, undo.content);
-        return {
-          content: [
-            {
-              type: "text",
-              text: parts.join("\n"),
+          const patchResult = genPatch(path, currentNormalized, undo.content);
+          return {
+            content: [
+              {
+                type: "text",
+                text: parts.join("\n"),
+              },
+            ],
+            details: {
+              diff: undoDiff,
+              diffLineNumbers: undoDiffResult.lineNumbers,
+              patch: patchResult.patch,
+              ...(patchResult.truncated ? { patchTruncated: true as const } : {}),
+              metrics: buildMetrics({
+                classification: "applied",
+                editsAttempted: 1,
+                noopEditsCount: 0,
+                warningsCount: 0,
+                firstChangedLine: restoredRange?.firstChangedLine,
+                lastChangedLine: restoredRange?.lastChangedLine,
+                addedLines: linesRemovedByReplace,
+                removedLines: linesAddedByReplace,
+              }),
             },
-          ],
-          details: {
-            diff: undoDiff,
-            diffLineNumbers: undoDiffResult.lineNumbers,
-            patch: patchResult.patch,
-            ...(patchResult.truncated ? { patchTruncated: true as const } : {}),
-            metrics: buildMetrics({
-              classification: "applied",
-              editsAttempted: 1,
-              noopEditsCount: 0,
-              warningsCount: 0,
-              firstChangedLine: restoredRange?.firstChangedLine,
-              lastChangedLine: restoredRange?.lastChangedLine,
-              addedLines: linesRemovedByReplace,
-              removedLines: linesAddedByReplace,
-            }),
-          },
-        };
+          };
+        });
       });
     },
   });

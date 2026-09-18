@@ -2,18 +2,19 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatSize, DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, type TruncationResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { stat } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, win32 } from "node:path";
+import { dirname, isAbsolute, join, win32 } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { tryReadNormFile } from "./file-reader";
+import { globToRegex } from "./glob";
 import { MAX_HASH_LINES, fmtRow, HASH_LEN, HASH_SEP } from "./hashline";
 import { ANCHOR_POOL_EXHAUSTED_PREFIX, MAX_GREP_LINE_BYTES } from "./constants";
-import { toCwd } from "./paths";
+import { toCwd, toDisplayPath } from "./paths";
 import { loadP, loadGuide } from "./prompts";
 import { normReq } from "./payload-contract";
-import { abortIf, errCode, isRec, makePrepareArguments, rejectUnknownFields, truncateToBytes, visLines } from "./utils";
-import { markServed as markServedScoped } from "./anchor-registry";
-import { buildServedMap } from "./served";
+import { abortIf, errCode, gutterWidth, isRec, makePrepareArguments, rejectUnknownFields, truncateToBytes, visLines } from "./utils";
+import { withAnchorSession } from "./anchor-registry";
+import { serveRows } from "./served";
 import { Text } from "@earendil-works/pi-tui";
 import { expandHint, getResultText, reuseText, type CallT, type FgT } from "./replace-render";
 const GREP_KS = new Set(["pattern", "path", "glob", "context", "ignoreCase", "literal", "limit"]);
@@ -152,34 +153,6 @@ function assertSafeRegex(pattern: string): void {
   }
 }
 
-function globToRegex(glob: string): RegExp {
-  if (glob.startsWith("/")) glob = glob.slice(1);
-  let source = "";
-  let i = 0;
-  while (i < glob.length) {
-    const ch = glob[i]!;
-    if (ch === "*") {
-      if (glob[i + 1] === "*") {
-        i += 2;
-        if (glob[i] === "/") {
-          i += 1;
-          source += "(?:.*\\/)?";
-        } else {
-          source += ".*";
-        }
-        continue;
-      }
-      source += ".*";
-    } else if (ch === "?") {
-      source += "[^/]";
-    } else {
-      source += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-    }
-    i += 1;
-  }
-  return new RegExp(`^${source}$`);
-}
-
 interface FileHit {
   path: string;
   displayPath: string;
@@ -281,11 +254,8 @@ function makeHitFromIndices(
 }
 
 let cachedRgPath: string | undefined;
-export function clearRgPathCache(): void {
-  cachedRgPath = undefined;
-}
 
-async function resolveRgPath(): Promise<string> {
+export async function resolveRgPath(): Promise<string> {
   if (cachedRgPath !== undefined) return cachedRgPath;
   try {
     const r = spawnSync("rg", ["--version"], { stdio: "pipe" });
@@ -404,14 +374,11 @@ async function collectRgMatches(
   });
 }
 
-function gutterWidthFor(numbers: number[]): number {
-  let max = 0;
-  for (const n of numbers) if (n > max) max = n;
-  return String(max || 1).length;
-}
 
 function displayRowsForHit(hit: FileHit): string[] {
-  const width = gutterWidthFor(hit.lineNumbers);
+  let max = 0;
+  for (const n of hit.lineNumbers) if (n > max) max = n;
+  const width = gutterWidth(max, 1);
   return hit.rows.map((row, i) => {
     const n = hit.lineNumbers[i]!;
     const padded = String(n).padStart(width, " ");
@@ -553,172 +520,171 @@ export function regGrep(pi: ExtensionAPI): void {
     },
 
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const canonical = normReq(params);
-      assertGrepReq(canonical);
-      const req = canonical;
-      const context = req.context ?? 0;
-      const limit = req.limit ?? 100;
-      const base = req.path ? toCwd(req.path, ctx.cwd) : ctx.cwd;
-      abortIf(signal);
-      let baseStat;
-      try {
-        baseStat = await stat(base);
-      } catch (error) {
-        if (errCode(error) === "ENOENT") {
-          throw new Error(`[E_NOT_FOUND] File not found: ${req.path ?? ctx.cwd}`);
-        }
-        throw new Error(`[E_ACCESS] Cannot access path: ${req.path ?? ctx.cwd}`);
-      }
-      const globRoot = baseStat.isFile() ? dirname(base) : base;
-      const globRegex = req.glob === undefined ? undefined : globToRegex(req.glob);
-      const validatedRegex = buildRegex(req.pattern, req.literal === true, req.ignoreCase === true);
-      const rgPath = await resolveRgPath();
-      const hits: FileHit[] = [];
-      let matches = 0;
-      let limitTruncated = false;
-      let rowTruncated = false;
-      let rowCount = 0;
-      let byteCount = 0;
-      let totalRows = 0;
-      let totalBytes = 0;
-      let truncatedBy: "lines" | "bytes" | null = null;
-      let linesReplaced = 0;
-      let countOnly = false;
-      let poolSkipped = 0;
-      const makeGrepReader = (allocation: "real" | "shadow") => async (absPath: string) => {
-        try {
-          return await tryReadNormFile(absPath, ctx.cwd, { maxLines: MAX_HASH_LINES, noPersist: true, allocation, signal });
-        } catch (error) {
-          if (!isPoolExhaustedError(error)) throw error;
-          poolSkipped += 1;
-          return undefined;
-        }
-      };
-      const readGrepFile = makeGrepReader("real");
-      const readGrepFileShadow = makeGrepReader("shadow");
-      const rgMatches = await collectRgMatches(rgPath, req.pattern, base, req, signal);
-      const sortedFiles = [...rgMatches.keys()].sort(cmp);
-      for (let f = 0; f < sortedFiles.length; f++) {
+      return withAnchorSession(ctx, async () => {
+        const canonical = normReq(params);
+        assertGrepReq(canonical);
+        const req = canonical;
+        const context = req.context ?? 0;
+        const limit = req.limit ?? 100;
+        const base = req.path ? toCwd(req.path, ctx.cwd) : ctx.cwd;
         abortIf(signal);
-        const absPath = sortedFiles[f]!;
-        const allNums = rgMatches.get(absPath) ?? [];
-        const totalForFile = allNums.length;
-        const sortedNums = [...allNums].sort((a, b) => a - b);
-        const indices = sortedNums.map((n) => n - 1).filter((n) => n >= 0);
-        if (countOnly) {
-          if (globRegex) {
-            const displayPath = relative(ctx.cwd, absPath).replace(/\\/g, "/");
-            const globPath = relative(globRoot, absPath).replace(/\\/g, "/");
-            if (!globRegex.test(globPath) && !globRegex.test(displayPath)) continue;
+        let baseStat;
+        try {
+          baseStat = await stat(base);
+        } catch (error) {
+          if (errCode(error) === "ENOENT") {
+            throw new Error(`[E_NOT_FOUND] File not found: ${req.path ?? ctx.cwd}`);
           }
-          const norm = await readGrepFileShadow(absPath);
-          if (!norm) continue;
-          const hit = makeHitFromIndices(norm, relative(ctx.cwd, absPath).replace(/\\/g, "/"), indices, context, validatedRegex, totalForFile, indices.length);
-          const display = displayRowsForHit(hit);
-          totalRows += display.length;
-          for (const r of display) totalBytes += Buffer.byteLength(r, "utf-8") + 1;
-          const remainingCountOnly = limit - matches;
-          if (remainingCountOnly > 0) {
-            const add = Math.min(hit.matchCount, remainingCountOnly);
-            matches += add;
-            if (hit.matchCount > remainingCountOnly) limitTruncated = true;
-          } else {
-            limitTruncated = true;
+          throw new Error(`[E_ACCESS] Cannot access path: ${req.path ?? ctx.cwd}`);
+        }
+        const globRoot = baseStat.isFile() ? dirname(base) : base;
+        const globRegex = req.glob === undefined ? undefined : globToRegex(req.glob);
+        const matchesGlob = (absPath: string): boolean => {
+          if (globRegex === undefined) return true;
+          const displayPath = toDisplayPath(ctx.cwd, absPath);
+          const globPath = toDisplayPath(globRoot, absPath);
+          return globRegex.test(globPath) || globRegex.test(displayPath);
+        };
+        const validatedRegex = buildRegex(req.pattern, req.literal === true, req.ignoreCase === true);
+        const rgPath = await resolveRgPath();
+        const hits: FileHit[] = [];
+        let matches = 0;
+        let limitTruncated = false;
+        let rowTruncated = false;
+        let rowCount = 0;
+        let byteCount = 0;
+        let totalRows = 0;
+        let totalBytes = 0;
+        let truncatedBy: "lines" | "bytes" | null = null;
+        let linesReplaced = 0;
+        let countOnly = false;
+        let poolSkipped = 0;
+        const makeGrepReader = (allocation: "real" | "shadow") => async (absPath: string) => {
+          try {
+            return await tryReadNormFile(absPath, ctx.cwd, { maxLines: MAX_HASH_LINES, noPersist: true, allocation, signal });
+          } catch (error) {
+            if (!isPoolExhaustedError(error)) throw error;
+            poolSkipped += 1;
+            return undefined;
           }
-          continue;
-        }
-        const remaining = limit - matches;
-        if (remaining <= 0) {
-          limitTruncated = true;
-          break;
-        }
-        if (globRegex) {
-          const displayPath = relative(ctx.cwd, absPath).replace(/\\/g, "/");
-          const globPath = relative(globRoot, absPath).replace(/\\/g, "/");
-          if (!globRegex.test(globPath) && !globRegex.test(displayPath)) continue;
-        }
-        const norm = await readGrepFile(absPath);
-        if (!norm) continue;
-        const hit = makeHitFromIndices(norm, relative(ctx.cwd, absPath).replace(/\\/g, "/"), indices, context, validatedRegex, totalForFile, Math.min(totalForFile, remaining));
-        if (!hit) continue;
-        const display = displayRowsForHit(hit);
-        const keptRows: string[] = [];
-        const keptHashes: string[] = [];
-        const keptLineNumbers: number[] = [];
-        const keptFragmented: boolean[] = [];
-        for (let i = 0; i < display.length; i++) {
-          const row = display[i]!;
-          const rowBytes = Buffer.byteLength(row, "utf-8") + 1;
-          if (rowCount >= DEFAULT_MAX_LINES || byteCount + rowBytes > DEFAULT_MAX_BYTES) {
-            rowTruncated = true;
-            if (truncatedBy === null) truncatedBy = byteCount + rowBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines";
-            for (let j = i; j < display.length; j++) {
-              totalRows += 1;
-              totalBytes += Buffer.byteLength(display[j]!, "utf-8") + 1;
+        };
+        const readGrepFile = makeGrepReader("real");
+        const readGrepFileShadow = makeGrepReader("shadow");
+        const rgMatches = await collectRgMatches(rgPath, req.pattern, base, req, signal);
+        const sortedFiles = [...rgMatches.keys()].sort(cmp);
+        for (let f = 0; f < sortedFiles.length; f++) {
+          abortIf(signal);
+          const absPath = sortedFiles[f]!;
+          const allNums = rgMatches.get(absPath) ?? [];
+          const totalForFile = allNums.length;
+          const sortedNums = [...allNums].sort((a, b) => a - b);
+          const indices = sortedNums.map((n) => n - 1).filter((n) => n >= 0);
+          if (countOnly) {
+            if (!matchesGlob(absPath)) continue;
+            const norm = await readGrepFileShadow(absPath);
+            if (!norm) continue;
+            const hit = makeHitFromIndices(norm, toDisplayPath(ctx.cwd, absPath), indices, context, validatedRegex, totalForFile, indices.length);
+            const display = displayRowsForHit(hit);
+            totalRows += display.length;
+            for (const r of display) totalBytes += Buffer.byteLength(r, "utf-8") + 1;
+            const remainingCountOnly = limit - matches;
+            if (remainingCountOnly > 0) {
+              const add = Math.min(hit.matchCount, remainingCountOnly);
+              matches += add;
+              if (hit.matchCount > remainingCountOnly) limitTruncated = true;
+            } else {
+              limitTruncated = true;
             }
+            continue;
+          }
+          const remaining = limit - matches;
+          if (remaining <= 0) {
+            limitTruncated = true;
             break;
           }
-          keptRows.push(row);
-          keptHashes.push(hit.hashes[i]!);
-          keptLineNumbers.push(hit.lineNumbers[i]!);
-          keptFragmented.push(hit.fragmented[i]!);
-          if (hit.fragmented[i]) linesReplaced += 1;
-          rowCount += 1;
-          byteCount += rowBytes;
-          totalRows += 1;
-          totalBytes += rowBytes;
-        }
-        if (hit.totalMatchCount > hit.matchCount) limitTruncated = true;
-        matches += hit.matchCount;
-        const displayHit: FileHit = { ...hit, rows: keptRows, hashes: keptHashes, lineNumbers: keptLineNumbers, fragmented: keptFragmented };
-        hits.push(displayHit);
-        if (rowTruncated) countOnly = true;
-      }
-      hits.sort((a, b) => cmp(a.displayPath, b.displayPath));
-      for (const hit of hits) {
-        markServedScoped(hit.path, buildServedMap(hit.fileHashes, hit.fileLines, hit.hashes), new Set(hit.fileHashes));
-      }
-      const blocks = hits
-        .map((hit) => `=== ${hit.displayPath} ===\n${hit.rows.join("\n")}`)
-        .join("\n");
-      const notes: string[] = [];
-      if (rowTruncated) notes.push(`[grep: output truncated at ${DEFAULT_MAX_LINES} rows or ${formatSize(DEFAULT_MAX_BYTES)}; refine the pattern to see more.]`);
-      if (limitTruncated) notes.push(`[grep: showing first ${limit} matches; increase limit to see more.]`);
-      if (linesReplaced > 0) notes.push(`[grep: ${linesReplaced} line(s) exceed ${formatSize(MAX_GREP_LINE_BYTES)} and are shown as truncated fragments; use read to see the full lines.]`);
-      if (poolSkipped > 0) notes.push(`[grep: ${poolSkipped} file(s) skipped because the session's anchor pool is exhausted; narrow the search.]`);
-      const truncated = limitTruncated || rowTruncated;
-      const truncation: TruncationResult | undefined = rowTruncated
-        ? {
-            content: blocks,
-            truncated: true,
-            truncatedBy,
-            totalLines: totalRows,
-            totalBytes,
-            outputLines: rowCount,
-            outputBytes: byteCount,
-            lastLinePartial: false,
-            firstLineExceedsLimit: false,
-            maxLines: DEFAULT_MAX_LINES,
-            maxBytes: DEFAULT_MAX_BYTES,
+          if (!matchesGlob(absPath)) continue;
+          const norm = await readGrepFile(absPath);
+          if (!norm) continue;
+          const hit = makeHitFromIndices(norm, toDisplayPath(ctx.cwd, absPath), indices, context, validatedRegex, totalForFile, Math.min(totalForFile, remaining));
+          const display = displayRowsForHit(hit);
+          const keptRows: string[] = [];
+          const keptHashes: string[] = [];
+          const keptLineNumbers: number[] = [];
+          const keptFragmented: boolean[] = [];
+          for (let i = 0; i < display.length; i++) {
+            const row = display[i]!;
+            const rowBytes = Buffer.byteLength(row, "utf-8") + 1;
+            if (rowCount >= DEFAULT_MAX_LINES || byteCount + rowBytes > DEFAULT_MAX_BYTES) {
+              rowTruncated = true;
+              if (truncatedBy === null) truncatedBy = byteCount + rowBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines";
+              for (let j = i; j < display.length; j++) {
+                totalRows += 1;
+                totalBytes += Buffer.byteLength(display[j]!, "utf-8") + 1;
+              }
+              break;
+            }
+            keptRows.push(row);
+            keptHashes.push(hit.hashes[i]!);
+            keptLineNumbers.push(hit.lineNumbers[i]!);
+            keptFragmented.push(hit.fragmented[i]!);
+            if (hit.fragmented[i]) linesReplaced += 1;
+            rowCount += 1;
+            byteCount += rowBytes;
+            totalRows += 1;
+            totalBytes += rowBytes;
           }
-        : undefined;
-      const text = blocks.length > 0
-        ? `${blocks}${notes.length > 0 ? `\n${notes.join("\n")}` : ""}`
-        : notes.length > 0
-          ? `No matches found.\n${notes.join("\n")}`
-          : "No matches found.";
-      return {
-        content: [{ type: "text", text }],
-        details: {
-          ...(truncation ? { truncation } : {}),
-          ...(linesReplaced > 0 ? { linesTruncated: true as const } : {}),
-          metrics: {
-            matches,
-            files: hits.length,
-            truncated,
+          if (hit.totalMatchCount > hit.matchCount) limitTruncated = true;
+          matches += hit.matchCount;
+          const displayHit: FileHit = { ...hit, rows: keptRows, hashes: keptHashes, lineNumbers: keptLineNumbers, fragmented: keptFragmented };
+          hits.push(displayHit);
+          if (rowTruncated) countOnly = true;
+        }
+        hits.sort((a, b) => cmp(a.displayPath, b.displayPath));
+        for (const hit of hits) {
+          serveRows(hit.path, hit.fileHashes, hit.fileLines, hit.hashes);
+        }
+        const blocks = hits
+          .map((hit) => `=== ${hit.displayPath} ===\n${hit.rows.join("\n")}`)
+          .join("\n");
+        const notes: string[] = [];
+        if (rowTruncated) notes.push(`[grep: output truncated at ${DEFAULT_MAX_LINES} rows or ${formatSize(DEFAULT_MAX_BYTES)}; refine the pattern to see more.]`);
+        if (limitTruncated) notes.push(`[grep: showing first ${limit} matches; increase limit to see more.]`);
+        if (linesReplaced > 0) notes.push(`[grep: ${linesReplaced} line(s) exceed ${formatSize(MAX_GREP_LINE_BYTES)} and are shown as truncated fragments; use read to see the full lines.]`);
+        if (poolSkipped > 0) notes.push(`[grep: ${poolSkipped} file(s) skipped because the session's anchor pool is exhausted; narrow the search.]`);
+        const truncated = limitTruncated || rowTruncated;
+        const truncation: TruncationResult | undefined = rowTruncated
+          ? {
+              content: blocks,
+              truncated: true,
+              truncatedBy,
+              totalLines: totalRows,
+              totalBytes,
+              outputLines: rowCount,
+              outputBytes: byteCount,
+              lastLinePartial: false,
+              firstLineExceedsLimit: false,
+              maxLines: DEFAULT_MAX_LINES,
+              maxBytes: DEFAULT_MAX_BYTES,
+            }
+          : undefined;
+        const text = blocks.length > 0
+          ? `${blocks}${notes.length > 0 ? `\n${notes.join("\n")}` : ""}`
+          : notes.length > 0
+            ? `No matches found.\n${notes.join("\n")}`
+            : "No matches found.";
+        return {
+          content: [{ type: "text", text }],
+          details: {
+            ...(truncation ? { truncation } : {}),
+            ...(linesReplaced > 0 ? { linesTruncated: true as const } : {}),
+            metrics: {
+              matches,
+              files: hits.length,
+              truncated,
+            },
           },
-        },
-      };
+        };
+      });
     },
   });
 }

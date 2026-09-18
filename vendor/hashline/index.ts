@@ -1,28 +1,31 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES } from "@earendil-works/pi-coding-agent";
-import { initHasher } from "./src/hashline";
+import { initHasher, lineChecksum } from "./src/hashline";
 import { regReplace } from "./src/replace";
 import { regInsert } from "./src/insert";
 import { regGrep } from "./src/grep";
 import { regUndo, clearUndo } from "./src/replace-undo";
 import { regRead, fmtReadPreview } from "./src/read";
+import { buildAutoReadAllInjection, autoReadAllBudget } from "./src/auto-read-all";
 import type { RMetrics } from "./src/replace-response";
 import type { ReplaceDetails } from "./src/replace";
 import { extractWarnings } from "./src/replace-render";
 import { MAX_HASH_LINES } from "./src/hashline";
+import type { AutoReadAllMode } from "./src/config";
 import {
   readConfigWithStatus,
   toggleAutoRead,
+  cycleAutoReadAllMode,
   toggleAnchorGrep,
   toggleRequirePath,
   toggleStrictInput,
   cycleBoundaryDedupMode,
   adjustDiffContextLines,
+  setAutoReadAllIgnoreFromText,
 } from "./src/config";
 import { loadHashStore, persistSnapshot, pruneMissing } from "./src/hash-store";
-import { initRegistry, gcRegistrySidecars, clearRegistry, freeAnchors, markServed as markServedScoped } from "./src/anchor-registry";
-import { buildServedMap } from "./src/served";
-import { clearBoundaryBypass } from "./src/boundary-bypass";
+import { initRegistry, gcRegistrySidecars, clearRegistry, freeAnchors, sessionKeyFor, withAnchorSession, releaseRegistrySession } from "./src/anchor-registry";
+import { serveRows } from "./src/served";
 import { finalizeTurn, planAssistantMessage } from "./src/batch";
 import { currentEditFlags } from "./src/edit-common";
 import { HashlineConfigOverlay } from "./src/config-ui";
@@ -32,8 +35,7 @@ import { loadFileKindAndText } from "./src/file-kind";
 import { resolveInCwd } from "./src/fs-write";
 import { valAccess } from "./src/validation";
 import { splitLines } from "./src/utils";
-import { hashSource } from "./src/hashline";
-import { contentChecksum } from "./src/hashline/hasher";
+import { AUTO_READ_ALL_CUSTOM_TYPE } from "./src/constants";
 
 export default function (pi: ExtensionAPI): void {
   regRead(pi);
@@ -45,6 +47,9 @@ export default function (pi: ExtensionAPI): void {
   registerWriteHook(pi);
 
   let autoRead = true;
+  let autoReadAll: AutoReadAllMode = "off";
+  let autoReadAllIgnore: string[] = [];
+  let autoReadAllInjected = false;
   let grepWasActive = false;
 
   async function refreshEditTools(): Promise<void> {
@@ -53,12 +58,13 @@ export default function (pi: ExtensionAPI): void {
       regRead(pi, flags);
       regReplace(pi, flags);
       regInsert(pi, flags);
+      regUndo(pi, flags);
     } catch (error) {
       console.error("Failed to refresh edit tools:", error);
     }
   }
 
-  pi.on("session_start", async (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => withAnchorSession(ctx, async () => {
     const active = pi.getActiveTools();
     grepWasActive = active.includes("grep");
     pi.setActiveTools(active.filter((t) => t !== "edit"));
@@ -73,11 +79,15 @@ export default function (pi: ExtensionAPI): void {
       });
     const sessionManager = (ctx as { sessionManager?: { getSessionFile?: () => string | undefined } }).sessionManager;
     const sessionFile = sessionManager?.getSessionFile?.();
-    await initRegistry(sessionFile);
+    if (sessionKeyFor(ctx) === undefined) await initRegistry(sessionFile);
     await gcRegistrySidecars();
     const { config, corrupted } = await readConfigWithStatus();
     if (corrupted && (ctx as { hasUI?: boolean }).hasUI) ctx.ui.notify("Hashline config was corrupt and was reset to defaults", "warning");
     autoRead = config.autoRead;
+    autoReadAll = config.autoReadAll ?? "off";
+    autoReadAllIgnore = config.autoReadAllIgnore ?? [];
+    const sessionBranch = (ctx as { sessionManager?: { getBranch?: () => Array<{ type?: string; customType?: string }> } }).sessionManager?.getBranch?.() ?? [];
+    autoReadAllInjected = sessionBranch.some((entry) => entry.type === "custom_message" && entry.customType === AUTO_READ_ALL_CUSTOM_TYPE);
     await refreshEditTools();
     pi.setActiveTools(
       pi.getActiveTools().filter((t) =>
@@ -88,10 +98,33 @@ export default function (pi: ExtensionAPI): void {
     if (debugValue === "1" || debugValue === "true") {
       ctx.ui.notify(`Hashline Edit mode active`, "info");
     }
+  }));
+
+  pi.on("session_shutdown", async (_event, ctx) => {
+    try {
+      const key = sessionKeyFor(ctx);
+      if (key !== undefined) releaseRegistrySession(key);
+    } catch (error) {
+      console.error("Failed to release anchor registry session:", error);
+    }
   });
 
+  pi.on("before_agent_start", async (_event, ctx) => withAnchorSession(ctx, async () => {
+    if (autoReadAll === "off" || autoReadAllInjected) return;
+    autoReadAllInjected = true;
+    try {
+      const injection = await buildAutoReadAllInjection(ctx.cwd, autoReadAllBudget(ctx.model), autoReadAll, autoReadAllIgnore);
+      if (!injection) return;
+      if (ctx.hasUI) ctx.ui.notify(`Auto-read all: attached ${injection.files} file(s) with anchors`, "info");
+      return { message: { customType: AUTO_READ_ALL_CUSTOM_TYPE, content: injection.text, display: false } };
+    } catch (error) {
+      console.error("Auto-read all failed:", error);
+      return;
+    }
+  }));
+
   pi.registerCommand("hashline-config", {
-    description: "Open the hashline settings window (auto-read, diff context, grep, path, strict input, dedup)",
+    description: "Open the hashline settings window (auto-read, auto-read all, ignore folders/files, diff context, grep, path, strict input, dedup)",
     handler: async (_args, ctx) => {
       if (!ctx.hasUI) {
         ctx.ui.notify("/hashline-config requires interactive mode", "error");
@@ -102,8 +135,10 @@ export default function (pi: ExtensionAPI): void {
           tui,
           theme,
           done,
-          onToggle: async (key, delta) => {
+          onToggle: async (key, delta, value) => {
             if (key === "autoRead") autoRead = await toggleAutoRead();
+            else if (key === "autoReadAll") { autoReadAll = await cycleAutoReadAllMode(); autoReadAllInjected = false; }
+            else if (key === "autoReadAllIgnore") autoReadAllIgnore = await setAutoReadAllIgnoreFromText(value ?? "");
             else if (key === "diffContextLines") await adjustDiffContextLines(delta ?? 1);
             else if (key === "anchorGrepEnabled") {
               const enabled = await toggleAnchorGrep();
@@ -127,18 +162,18 @@ export default function (pi: ExtensionAPI): void {
 
   pi.registerCommand("clear-anchors", {
     description: "Clear the session's anchor claims (path-free resolution state); anchors are re-claimed on the next read",
-    handler: async (_args, ctx) => {
+    handler: async (_args, ctx) => withAnchorSession(ctx, async () => {
       clearRegistry();
       ctx.ui.notify(`Anchor claims cleared for this session`, "info");
-    },
+    }),
   });
-  pi.on("message_end", async (event, ctx) => {
+  pi.on("message_end", async (event, ctx) => withAnchorSession(ctx, async () => {
     try {
       await planAssistantMessage(event.message, ctx.cwd);
     } catch (error) {
       console.error("Failed to plan edit batch:", error);
     }
-  });
+  }));
   pi.on("turn_end", async (event) => {
     try {
       const ids = (event.toolResults ?? []).map((result) => (result as { toolCallId?: unknown }).toolCallId).filter((id): id is string => typeof id === "string");
@@ -147,7 +182,7 @@ export default function (pi: ExtensionAPI): void {
       console.error("Failed to finalize edit batch:", error);
     }
   });
-  pi.on("tool_result", async (event, ctx) => {
+  pi.on("tool_result", async (event, ctx) => withAnchorSession(ctx, async () => {
     if (event.isError) return;
 
     if (event.toolName === "write") {
@@ -158,7 +193,6 @@ export default function (pi: ExtensionAPI): void {
           resolvedPath = (await resolveInCwd(writtenPath, ctx.cwd)).resolved;
           freeAnchors(resolvedPath);
           await clearUndo(resolvedPath);
-          clearBoundaryBypass(resolvedPath);
         } catch (error) {
           console.error("Failed to clear undo after write:", error);
         }
@@ -182,8 +216,8 @@ export default function (pi: ExtensionAPI): void {
           DEFAULT_MAX_LINES,
         );
         const fileLines = splitLines(normalized);
-        persistSnapshot(await loadHashStore(), absolutePath, normalized, fileHashes, fileLines.map((line) => contentChecksum(hashSource(line))));
-        markServedScoped(absolutePath, buildServedMap(fileHashes, fileLines, preview.servedHashes), new Set(fileHashes));
+        persistSnapshot(await loadHashStore(), absolutePath, normalized, fileHashes, fileLines.map(lineChecksum));
+        serveRows(absolutePath, fileHashes, fileLines, preview.servedHashes);
         return {
           content: [
             ...(event.content ?? []),
@@ -237,5 +271,5 @@ export default function (pi: ExtensionAPI): void {
         },
       ],
     };
-  });
+  }));
 }

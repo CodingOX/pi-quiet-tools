@@ -3,21 +3,21 @@ import { Type } from "typebox";
 import { constants } from "node:fs";
 import { execPipeline, type ReqParams, type ReplaceDetails, previewFromPipe, previewError } from "./replace";
 import { commitEdit } from "./commit";
-import { batchMemberFor, ensureBatchBase, executeBatchMember, noteBatchFailure, suffixPoisonCause } from "./batch";
+import { batchMemberFor, ensureBatchBase, executeBatchMember, noteBatchFailure } from "./batch";
 import { readNormFile, type NormFile } from "./file-reader";
 import { MAX_HASH_LINES, parseHashRef, resEdit, resolveAnchorLine, type Anchor, type HEdit } from "./hashline";
 import { stripAnchorRow } from "./hashline/resolve";
+import { withAnchorSession } from "./anchor-registry";
 import { loadP, loadGuide } from "./prompts";
 import { assertInsertReq, normReq, type InsertReq } from "./payload-contract";
 import { decodeStringArray, isRec, splitLines } from "./utils";
-import { clearBoundaryBypass } from "./boundary-bypass";
 import { queuedEdit, editToolBase, editRenderCallWrapper, editRenderResultWrapper, resolveEditTargetWithRequirement, throwIfStrictInput, withInsertPrompts, DEFAULT_EDIT_FLAGS, type EditToolFlags } from "./edit-common";
 import type { RPreview, RRState } from "./replace-render";
 export { assertInsertReq, type InsertReq };
 
 const insertAnchorSchema = Type.String({
   description:
-    'Bare 4-char anchor from a read row (the text before the `│` separator), never the row content. A pasted diff row or `anchor│` prefix is stripped with a warning. The anchor line is preserved; lines go after or before it.',
+    'Bare 4-char anchor from a served anchor│content row (the text before the `│` separator), never the row content. A pasted diff row or `anchor│` prefix is stripped with a warning. The anchor line is preserved; lines go after or before it.',
 });
 
 const insertDirectionSchema = Type.Union(
@@ -95,11 +95,8 @@ export async function insertPreview(request: unknown, cwd: string, signal?: Abor
     const normalized = normReq(request);
     const previewFixes: string[] = [];
     if (isRec(normalized)) {
-      const expanded = decodeStringArray(normalized.lines);
-      if (expanded) {
-        previewFixes.push('[W_BAD_SHAPE] Unwrapped JSON array syntax from a lines element.');
-        normalized.lines = expanded;
-      }
+      const expanded = decodeStringArray(normalized.lines, previewFixes, "lines");
+      if (expanded) normalized.lines = expanded;
     }
     assertInsertReq(normalized);
     const previewReq = normalized as InsertReq;
@@ -175,87 +172,85 @@ export function buildInsertToolDef(flags: EditToolFlags = DEFAULT_EDIT_FLAGS): I
     renderCall: editRenderCallWrapper(insertPreview, getInsertInput, "insert"),
     renderResult: editRenderResultWrapper,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const canonical = normReq(params);
-      const insertWarnings: string[] = [];
-      if (isRec(canonical)) {
-        const expanded = decodeStringArray(canonical.lines);
-        if (expanded) {
-          insertWarnings.push('[W_BAD_SHAPE] Unwrapped JSON array syntax from a lines element.');
-          canonical.lines = expanded;
+      return withAnchorSession(ctx, async () => {
+        const canonical = normReq(params);
+        const insertWarnings: string[] = [];
+        if (isRec(canonical)) {
+          const expanded = decodeStringArray(canonical.lines, insertWarnings, "lines");
+          if (expanded) canonical.lines = expanded;
         }
-      }
-      assertInsertReq(canonical);
-      const req = canonical;
-      const targetPath = await resolveEditTargetWithRequirement({
-        anchor: req.anchor,
-        providedPath: req.path,
-        cwd: ctx.cwd,
-      }).catch((error: unknown) => {
-        const member = batchMemberFor(_toolCallId);
-        if (member) noteBatchFailure(member, error);
-        else suffixPoisonCause(_toolCallId, error);
-        throw error;
-      });
-      let ref: Anchor;
-      let anchorWarnings: string[];
-      try {
-        ({ ref, warnings: anchorWarnings } = parseInsertAnchor(req.anchor));
-        await throwIfStrictInput([...anchorWarnings, ...insertWarnings]);
-      } catch (error) {
-        const member = batchMemberFor(_toolCallId);
-        if (member) noteBatchFailure(member, error);
-        throw error;
-      }
-      return queuedEdit(targetPath, ctx.cwd, signal, async (absolutePath, mutationTargetPath) => {
-        const member = batchMemberFor(_toolCallId);
-        if (member) {
-          const base = await ensureBatchBase({ member, targetPath, mutationTargetPath, cwd: ctx.cwd, signal });
-          const basePreload = { normalized: base.content, fileHashes: base.hashes } as NormFile;
-          const built = buildInsertEdit(req, basePreload, ref, targetPath);
-          let hedit: HEdit;
-          const resWarnings: string[] = [];
-          try {
-            hedit = resEdit(built.editParams, resWarnings);
-          } catch (error) {
-            noteBatchFailure(member, error);
-            throw error;
+        assertInsertReq(canonical);
+        const req = canonical;
+        const targetPath = await resolveEditTargetWithRequirement({
+          anchor: req.anchor,
+          providedPath: req.path,
+          cwd: ctx.cwd,
+        }).catch((error: unknown) => {
+          const member = batchMemberFor(_toolCallId);
+          if (member) noteBatchFailure(member, error);
+          throw error;
+        });
+        let ref: Anchor;
+        let anchorWarnings: string[];
+        try {
+          ({ ref, warnings: anchorWarnings } = parseInsertAnchor(req.anchor));
+          await throwIfStrictInput([...anchorWarnings, ...insertWarnings]);
+        } catch (error) {
+          const member = batchMemberFor(_toolCallId);
+          if (member) noteBatchFailure(member, error);
+          throw error;
+        }
+        return queuedEdit(targetPath, ctx.cwd, signal, async (absolutePath, mutationTargetPath) => {
+          const member = batchMemberFor(_toolCallId);
+          if (member) {
+            const base = await ensureBatchBase({ member, targetPath, mutationTargetPath, cwd: ctx.cwd, signal });
+            const basePreload = { normalized: base.content, fileHashes: base.hashes } as NormFile;
+            const built = buildInsertEdit(req, basePreload, ref, targetPath);
+            let hedit: HEdit;
+            const resWarnings: string[] = [];
+            try {
+              hedit = resEdit(built.editParams, resWarnings);
+            } catch (error) {
+              noteBatchFailure(member, error);
+              throw error;
+            }
+            return executeBatchMember({
+              kind: "insert",
+              direction: req.direction,
+              member,
+              targetPath,
+              mutationTargetPath,
+              cwd: ctx.cwd,
+              signal,
+              hedit,
+              extraWarnings: [...anchorWarnings, ...insertWarnings, ...resWarnings],
+              skipBoundaryDedup: true,
+              strictBoundaryDedup: false,
+              foldedLines: built.anchorLine === undefined ? 0 : 1,
+            });
           }
-          return executeBatchMember({
-            kind: "insert",
-            member,
-            targetPath,
-            mutationTargetPath,
-            cwd: ctx.cwd,
+          const preload = await readNormFile(targetPath, ctx.cwd, {
             signal,
-            hedit,
-            extraWarnings: [...anchorWarnings, ...insertWarnings, ...resWarnings],
-            skipBoundaryDedup: true,
-            strictBoundaryDedup: false,
-            foldedLines: built.anchorLine === undefined ? 0 : 1,
+            accessMode: constants.R_OK | constants.W_OK,
+            maxLines: MAX_HASH_LINES,
           });
-        }
-        const preload = await readNormFile(targetPath, ctx.cwd, {
-          signal,
-          accessMode: constants.R_OK | constants.W_OK,
-          maxLines: MAX_HASH_LINES,
-        });
-        const { editParams, anchorLine } = buildInsertEdit(req, preload, ref, targetPath);
-        const pipe = await execPipeline(targetPath, editParams, ctx.cwd, {
-          accessMode: constants.R_OK | constants.W_OK,
-          signal,
-          preloadedNorm: preload,
-          skipBoundaryDedup: true,
-        });
-        return commitEdit(pipe, {
-          path: pipe.path,
-          absolutePath,
-          mutationTargetPath,
-          signal,
-          verb: "inserted",
-          noopNoun: "Insertion",
-          foldedAnchorLines: anchorLine === undefined ? 0 : 1,
-          prefixWarnings: [...anchorWarnings, ...insertWarnings],
-          onApplied: () => clearBoundaryBypass(mutationTargetPath),
+          const { editParams, anchorLine } = buildInsertEdit(req, preload, ref, targetPath);
+          const pipe = await execPipeline(targetPath, editParams, ctx.cwd, {
+            accessMode: constants.R_OK | constants.W_OK,
+            signal,
+            preloadedNorm: preload,
+            skipBoundaryDedup: true,
+          });
+          return commitEdit(pipe, {
+            path: pipe.path,
+            absolutePath,
+            mutationTargetPath,
+            signal,
+            verb: "inserted",
+            noopNoun: "Insertion",
+            foldedAnchorLines: anchorLine === undefined ? 0 : 1,
+            prefixWarnings: [...anchorWarnings, ...insertWarnings],
+          });
         });
       });
     },
