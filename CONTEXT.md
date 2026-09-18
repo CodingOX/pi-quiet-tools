@@ -71,3 +71,7 @@ _Avoid_: thinking, tool dump, narration pin
 **Closeout gate**:
 The rule that a change is not done until it has been checked on a reloaded runtime, and the pipeline that does it — `quiet-tools-verify`. The agent may run the static stages alone; the user owns the reload and the visual stages.
 _Avoid_: sign-off, QA pass, final check
+
+**Markdown enhance**:
+The `packages/markdown-enhance` layer that owns the bundle's single `markdownTransformer`: mermaid diagram dialects, GitHub admonitions, and bare-URL linkify, plus two opt-in cosmetic switches (`deCircled`, `hideCodeFence`). Nested under quiet-tools rather than competing with it — quiet-tools wraps `AssistantMessageComponent.render`, this patches `Markdown.renderToken`.
+_Avoid_: markdown extension, transform pipeline, renderer

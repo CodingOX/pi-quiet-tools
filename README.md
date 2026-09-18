@@ -22,6 +22,9 @@ What you get:
   pass with no visible reply, it blocks further tool calls until the model speaks.
 - **Compact subagent notices.** Completion notices become one status line instead of a multi-line
   block with paths.
+- **Markdown that reads better.** Mermaid diagram dialects, GitHub admonitions, and bare URLs become
+  links — all inside code fences left untouched. Two cosmetic extras (circled-digit rewriting and
+  code-fence hiding) are **off by default**; turn them on if you want them.
 
 Everything ships in one package. Install once — there is no second step, no glue file to copy, and
 nothing to configure before it works.
@@ -156,6 +159,25 @@ If you want another tool kept out of the ledger and shown in full, add its name 
 `tools.passthrough`. Quiet tools like `read` are stripped back out automatically on startup, so reads
 stay aggregated even if you paste an old config that lists them.
 
+The Markdown side has its own small config file — `~/.pi/agent/extension-data/pi-quiet-tools-markdown-enhance/config.json`:
+
+```json
+{
+  "enabled": true,
+  "common": true,
+  "deCircled": false,
+  "hideCodeFence": false
+}
+```
+
+| Key | What it does |
+| --- | --- |
+| `common` | Mermaid dialects, admonitions, bare-URL linkify. |
+| `deCircled` | Rewrites ①②③ → (1)(2)(3). Only needed if your font packs circled digits too tightly. |
+| `hideCodeFence` | Drops the ```` ``` ```` chrome lines above and below code blocks. |
+
+Both cosmetic keys are **off by default**, so a fresh install looks the same as vanilla Pi apart from the diagram and link improvements. Changing any value needs `/reload` — `hideCodeFence` installs a prototype patch that cannot be uninstalled mid-process.
+
 ---
 
 ## If something looks wrong
@@ -167,6 +189,7 @@ stay aggregated even if you paste an old config that lists them.
 | Subagent notices are still long | `@tintinweb/pi-subagents` is loading first. Pi uses the first renderer registered for a notice type, so this package has to come first. |
 | `Failed to load extension: ENOENT …` | Pi started before the package finished updating on disk. **Restart Pi** — `/reload` cannot clear a stale module path. |
 | Nothing looks different at all | Restart Pi, then confirm only one package is installed and the config file exists. |
+| Replacements inside a blockquote lose their quote styling after a bold/code/link run | A pre-1.0 copy of this extension already patched `Markdown.renderToken` in this process, and that patch cannot be uninstalled. **Restart Pi** — `/reload` only re-runs extension code; it does not reset the prototype. |
 
 Deeper cases — `E_STORE_UNAVAILABLE`, `Cannot find module`, why the load order matters — live in
 [`docs/internals.md`](./docs/internals.md).

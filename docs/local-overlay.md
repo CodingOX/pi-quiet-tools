@@ -17,6 +17,7 @@ This is not a changelog, not a glossary, and not a sync plan.
 ```text
 pi-quiet-tools                    root = the published unit (main package)
 ├── src/                          this repo — glue overlay (display policy)
+├── packages/markdown-enhance/    standalone — markdown transformer + opt-in fence hiding
 ├── packages/watchdog/            standalone — bash runaway gate (host + child)
 ├── packages/notify/              standalone — compact subagent notices
 └── vendor/
@@ -24,8 +25,8 @@ pi-quiet-tools                    root = the published unit (main package)
     └── display-intent/           fork — layout/liveness work lives here
 ```
 
-The two `packages/*` and two `vendor/*` are `file:` dependencies of the root package and
-are listed under `bundledDependencies`, so one install lands all four. See
+The three `packages/*` and two `vendor/*` are `file:` dependencies of the root package and
+are listed under `bundledDependencies`, so one install lands all five. See
 [`../AGENTS.md`](../AGENTS.md#dependencies) for why `file:` is required rather than cosmetic.
 
 Hashline’s execution contract is unchanged: the model still gets full anchors, `replace` / `insert` semantics, and complete tool results. Quiet-tools only changes what the **terminal** draws, plus a runaway gate for the UI host and for child sessions.
@@ -67,9 +68,20 @@ Mid-turn assistant Markdown stays visible as the assistant body. Thinking, GPT-s
 
 Silent hashline tools (`read`, `undo_last_change`, `anchor_grep`, plus retired `undo_last_replace`) get empty `renderCall` / `renderResult`. Non-ledger silent rows are swallowed so hashline file bodies never leak beside the ledger. Collapsed ledger lines pass through.
 
+**Markdown enhance** — `packages/markdown-enhance/`
+
+Mermaid diagram dialects (`sequenceDiagram`, `stateDiagram-v2`, `classDiagram`, `erDiagram`) beyond the built-in ```mermaid fence, GitHub admonitions (`> [!NOTE]` → bold-labelled blockquote), and bare-URL linkify — all skipped inside code fences and during streaming. Two cosmetic switches default **off** so no personal workaround is pushed to other consumers: `deCircled` (① → (1), a Nerd Font U+2460–U+2473 ink-overflow workaround) and `hideCodeFence` (swallows ```` ``` ```` chrome via a `Markdown.renderToken` prototype patch). Config lives at `~/.pi/agent/extension-data/pi-quiet-tools-markdown-enhance/config.json`.
+
+> ⚠️ **The pipeline is not idempotent.** Pi runs *every* registered transformer in sequence
+> (`applyMarkdownTransformers` loops over `runner.js` `getMarkdownTransformers()`), so a second copy of
+> this extension corrupts URLs (`[[u](u)](u](u))`). Do not keep a standalone `extensions/markdown-enhance/`
+> alongside the bundle — the old copy must be removed, not merely disabled.
+
 **Bundle seed + passthrough migration** — `config-seed.ts`, `config/default-display-config.json`
 
 First-run config is quieter than standalone display-intent: `per-turn`, intent off, `summary` results, passthrough `Agent` / `replace` / `insert` / leftover `edit`. Existing configs are not overwritten; startup migration strips silent hashline names and restores the keep-list.
+
+**Markdown display chain** — this bundle owns the only `markdownTransformer`. Quiet-tools wraps `AssistantMessageComponent.render` (narration) while markdown-enhance owns the transformer slot and patches `Markdown.renderToken` (fence chrome). These are nested, not competing: narration render → `Markdown.render` → `renderToken`. Neither display-intent nor hashline touches either surface, so collecting the transformer here costs no slot contention.
 
 ### Display-intent fork (`vendor/display-intent`)
 

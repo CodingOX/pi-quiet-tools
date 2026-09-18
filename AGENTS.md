@@ -4,13 +4,14 @@ Guidance for humans and coding agents working in this repository.
 
 ## What this project is
 
-**pi-quiet-tools** is a monorepo that ships one Pi bundle plus two optional standalone packages.
+**pi-quiet-tools** is a monorepo that ships one Pi bundle plus three optional standalone packages.
 
 ```text
 pi-quiet-tools/                 root = THE published unit (main package)
 ├── index.ts                    Pi entry: load order is the whole design
 ├── src/                        glue — display policy, silent renderers, schema lock
 ├── config/                     first-run display-intent seed
+├── packages/markdown-enhance/  standalone package — markdown transformer + opt-in fence hiding
 ├── packages/watchdog/          standalone package — bash runaway gate
 ├── packages/notify/            standalone package — compact subagent notices
 └── vendor/                     third-party source, see vendor/README.md
@@ -18,9 +19,11 @@ pi-quiet-tools/                 root = THE published unit (main package)
     └── display-intent/         FORK of pi-tool-display-intent (has local-only work)
 ```
 
+`packages/markdown-enhance` is the one package here that is **not** derived from hashline or display-intent — it was lifted out of `pi-cc-extensions` and folded into this bundle so its `grok-mermaid` dependency ships normally instead of every machine having to install it by hand. Its two cosmetic switches default off; the pipeline it owns is **not idempotent**, so a second copy anywhere in the load path corrupts URLs. See [`docs/local-overlay.md`](./docs/local-overlay.md).
+
 Design goal: **minimal terminal noise**. Users should see small per-turn tool counts, truncated edit diffs, mid-turn assistant Markdown, and the final answer — not per-call file reads or hashline anchors.
 
-**One install, everything included.** The root `package.json` declares the two `packages/*` and the two `vendor/*` as `file:` dependencies and lists them under `bundledDependencies`, so `pi install <this repo>` lands all four in `node_modules/`. Users never install the pieces separately.
+**One install, everything included.** The root `package.json` declares the three `packages/*` and the two `vendor/*` as `file:` dependencies and lists them under `bundledDependencies`, so `pi install <this repo>` lands all five in `node_modules/`. Users never install the pieces separately.
 
 What this repo added, changed, and optimized on top of upstream is recorded in [`docs/local-overlay.md`](./docs/local-overlay.md). Update that file in the same change when the overlay gains, loses, or reclassifies a behaviour. Do not copy that inventory into this file, `CONTEXT.md`, or the README.
 
@@ -70,16 +73,21 @@ index.ts  (Pi entry — order below is a contract, not a preference)
 
 8. **The pieces are bundled, not co-installed.** `packages/watchdog` and `packages/notify` are reachable both as bundle members and as standalone installs. Installing both the bundle *and* a standalone copy is not deduped by Pi (different paths) — see the handover notes in each package's `src/index.ts`.
 
+9. **The markdown transformer is single-owner and its pipeline is not idempotent.** `packages/markdown-enhance` owns the only `registerMarkdownTransformer` in this bundle; quiet-tools never registers one (it wraps `AssistantMessageComponent.render`) and neither upstream does. Pi runs **every** registered transformer in sequence (`applyMarkdownTransformers` iterates `runner.js` `getMarkdownTransformers()`), and this pipeline re-wraps URLs on a second pass (`[[u](u)](u](u))`). A leftover `~/.pi/agent/extensions/markdown-enhance/` therefore corrupts output instead of merely duplicating work — remove the standalone copy, do not just disable it. Its two cosmetic switches (`deCircled`, `hideCodeFence`) default **off**; the Nerd Font circled-digit workaround and fence-chrome hiding are personal preferences and must not be imposed on consumers.
+
 ## Dependencies
 
-All four runtime inputs are local `file:` paths resolved inside the repo:
+All five runtime inputs are local `file:` paths resolved inside the repo:
 
 | Dependency | Source | Channel |
 | --- | --- | --- |
 | `@pi-quiet-tools/watchdog` | `packages/watchdog` | workspace + bundled |
+| `@pi-quiet-tools/markdown-enhance` | `packages/markdown-enhance` | workspace + bundled |
 | `@pi-quiet-tools/notify` | `packages/notify` | workspace + bundled |
 | `pi-hashline-edit-pro` | `vendor/hashline` | vendored mirror + bundled |
 | `@zhcsyncer/pi-tool-display-intent` | `vendor/display-intent` | vendored fork + bundled |
+
+> ⚠️ **`grok-mermaid` is declared at the root on purpose.** `packages/markdown-enhance` is the only bundle member with a third-party runtime dependency that is *not* vendored. Declaring it in the root `dependencies` + `bundledDependencies` is what makes `pi install <repo>` land it — otherwise every consumer hits the same `Cannot find module 'grok-mermaid'` that motivated folding this package in (see [`docs/local-overlay.md`](./docs/local-overlay.md)). Same rule as the transitive deps below: a new runtime dependency anywhere in `packages/*` must be declared at the root.
 
 > ⚠️ **`file:` is required, not cosmetic.** `bundledDependencies` only picks up dependencies whose targets exist under the package's own `node_modules`. With a semver range, npm resolves a workspace package to a symlink and `npm pack` silently emits a tarball with **no** bundled deps. `file:` gives npm a concrete target to materialise. Verified against npm 11.17.0; re-verify if that changes.
 >

@@ -7,6 +7,59 @@
 
 ---
 
+## 2026-09-18 · Markdown 增强收编进 bundle
+
+把个人维护的 `~/.pi/agent/extensions/markdown-enhance/` 收进仓库，成为
+`packages/markdown-enhance`。起因是一次换机：pi-sync 明确不同步 `node_modules`
+（`isDeniedPath()` 硬编码拒绝，无 allowlist），而该扩展依赖裸包 `grok-mermaid`，
+于是新机器上 Pi 启动直接 `process.exit(1)`——报错还指向一个和插件无关的模块名。
+
+### Added
+
+- **`@pi-quiet-tools/markdown-enhance`**：从 `pi-cc-extensions` 抽出的 Markdown 变换层。
+  mermaid 方言图（`sequenceDiagram` / `stateDiagram-v2` / `classDiagram` / `erDiagram`，
+  内置 transformer 只认 ` ```mermaid `）、GitHub 提示框（`> [!NOTE]` → 加粗标签引用块）、
+  裸 URL 转链接；代码块内与流式态一律跳过。
+- **两个口味开关，默认关闭**：`deCircled`（①→(1)，Nerd Font 补丁字形 U+2460–U+2473
+  ink 超界的规避）与 `hideCodeFence`（`Markdown.renderToken` 原型补丁，吞掉 ``` chrome）。
+  默认关是刻意的：这是个人 workaround 与口味，不该强加给其他消费者。
+  配置在 `~/.pi/agent/extension-data/pi-quiet-tools-markdown-enhance/config.json`，
+  逐字段类型校验，坏字段单独退回默认。
+- `grok-mermaid` 进根 `dependencies` + `bundledDependencies`（本 bundle 唯一非 vendor 的
+  第三方运行时依赖），`pi install` 一次装齐。
+
+### Changed
+
+- **根 `index.ts` 接线**：`registerMarkdownEnhance(pi)` 与既有各层并列。它不抢槽位 ——
+  quiet-tools 从不注册 `markdownTransformer`（只包 `AssistantMessageComponent.render`），
+  display-intent 与 hashline 两个上游也都不碰；三者是嵌套（narration render →
+  `Markdown.render` → `renderToken`）而非竞争。
+
+### Fixed
+
+- **换机后 `Cannot find module 'grok-mermaid'`**。根因不再是靠 vendor 内联规避，
+  而是依赖随包发布：实测 `npm pack` 后 tarball 内含 64 个 grok-mermaid 文件的
+  `node_modules/grok-mermaid`，模拟全新消费者安装后从包入口可正常解析。
+
+> ⚠️ **管道不幂等，旧扩展必须删除而非禁用。** Pi 的 `applyMarkdownTransformers`
+> 会顺序执行**所有**注册的 transformer，两次过管道会把 URL 毁成
+> `[[u](u)](u](u))`。旧目录已移到 `~/.pi/agent/markdown-enhance.backup-<date>`（在
+> `extensions/` 之外，既不被 Pi 加载也不被 pi-sync 同步）。锁在
+> `AGENTS.md` 不变量 9 与 `docs/local-overlay.md`。
+
+- **引用块内「加粗 / 行内代码 / 链接」之后的文字丢样式**。`hideCodeFence` 的
+  `Markdown.renderToken` 包装只转发了前三个形参，吞掉第 4 个 `styleContext`——
+  blockquote（`markdown.js:440`）与 list（`:616`）分支靠它给子 token 恢复引用块
+  样式前缀，丢了之后前景色被上游 `\x1b[39m` 重置、再无人恢复，表现为「无标记的
+  引用块正常，带标签的那部分不一样」。改用 `Function#apply` 转发**全部**实参，
+  上游将来再加参数也不会重踩。缺陷在从 pi-cc-extensions 抽出时就已存在
+  （上游原版没有这段 patch）。
+- **原型补丁跨 `/reload` 换不掉**。`Markdown.prototype` 是进程级对象，reload 不重置
+  它；v1 只置了布尔标记 `__mdEnhanceHideFences`、**没保存真原始函数**，所以修好
+  包装逻辑后 reload 看似成功、实际仍在跑旧包装。现在把「版本 + 真原始函数」一起
+  存在原型上（`__piQuietToolsCodeFencePatch`），可解包重装；遇到 v1 残留这种解不开
+  的情况则返回 `false` 而不是假装装好。**这条修复必须重启 Pi 才能生效，`/reload` 不行。**
+
 ## 2026-09-18 · 单包自包含发布 + hashline 4.3.4
 
 这一天的主题是**把「装一次就够」变成事实**：去掉 submodule，把两个上游内嵌进仓库，
