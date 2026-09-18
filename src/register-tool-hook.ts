@@ -23,20 +23,13 @@ function silentResult(): Text {
   return new Text("", 0, 0);
 }
 
-function minimizeHashlineToolUi(tool: ToolDefinition): ToolDefinition {
-  if (!HASHLINE_SILENT_TOOL_NAME_SET.has(tool.name)) {
-    return tool;
-  }
-
+function silentHashlineToolUi(tool: ToolDefinition): ToolDefinition {
   return {
     ...tool,
     renderCall() {
       return silentResult();
     },
-    renderResult(_result, options) {
-      if (options.isPartial) {
-        return silentResult();
-      }
+    renderResult() {
       return silentResult();
     },
   };
@@ -48,40 +41,12 @@ function minimizeHashlineToolUi(tool: ToolDefinition): ToolDefinition {
  */
 function decorateHashlineToolUi(tool: ToolDefinition): ToolDefinition {
   if (HASHLINE_SILENT_TOOL_NAME_SET.has(tool.name)) {
-    return minimizeHashlineToolUi(tool);
+    return silentHashlineToolUi(tool);
   }
   if (HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(tool.name)) {
     return compactEditToolUi(lockHashlineEditSchema(tool));
   }
   return tool;
-}
-
-export function applyMinimalUiToHashlineTools(pi: ExtensionAPI): void {
-  try {
-    for (const tool of pi.getAllTools()) {
-      if (
-        !HASHLINE_SILENT_TOOL_NAME_SET.has(tool.name) &&
-        !HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(tool.name)
-      ) {
-        continue;
-      }
-
-      // SAFETY: Pi 的 getAllTools() 在加载期会 throw；runtime 返回的是没有 renderer
-      // 的浅拷贝，Object.assign 也写不回 registry。真正装饰走 hook。
-      // 这段留下是为了步骤 6 的加载顺序契约，失败就当 no-op。
-      const decorated = decorateHashlineToolUi(
-        tool as unknown as ToolDefinition,
-      );
-      Object.assign(tool, {
-        renderCall: decorated.renderCall,
-        renderResult: decorated.renderResult,
-        // 加载期 getAllTools 基本是 no-op，但 B/C 的 renderShell 不要留缺口。
-        renderShell: decorated.renderShell,
-      });
-    }
-  } catch {
-    // getAllTools may be unavailable during very early extension load.
-  }
 }
 
 export function installRegisterToolHook(pi: ExtensionAPI): void {

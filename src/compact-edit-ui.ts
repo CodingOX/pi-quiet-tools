@@ -13,17 +13,10 @@ import { tryResolveEditTarget } from "pi-hashline-edit-pro/src/edit-common.ts";
 export const EDIT_PREVIEW_MAX_LINES = 6;
 
 /**
- * 折叠态编辑预览的外壳实验开关。改这一行 → 用户 /reload → 看终端。
- *
- * - padded: 留 Pi 默认绿壳，只给 Text 加 paddingX=2
- * - self: 去绿壳，靠 Text padding 缩进
- * - rail: 去绿壳；标题在轨道外，标题和 `│` 同一条左边线，整块 inset，不顶列 0
- *
- * 不要做成配置项。paddingY 必须保持 0，否则标题和 diff 会被撕开。
+ * 折叠态外壳：去绿壳；标题在轨道外，标题和 `│` 同一条左边线。
+ * 左缘 2 大于 `│ ` 到字的 1 格，也大于默认 Markdown outputPad=1。
+ * paddingY 必须保持 0，否则标题和 diff 会被撕开。
  */
-export type CompactEditChrome = "padded" | "self" | "rail";
-export const COMPACT_EDIT_CHROME: CompactEditChrome = "rail";
-/** 标题和 `│` 共用的左缘。2 > `│ ` 到字的 1 格，也大于默认 Markdown outputPad=1。 */
 const RAIL_INSET_X = 2;
 
 const DIFF_CONTENT_MAX_CHARS = 120;
@@ -310,35 +303,23 @@ function applyCompactEditChrome(
   content: string,
   theme?: CompactEditTheme,
 ): { text: string; paddingX: number } {
-  if (COMPACT_EDIT_CHROME === "rail") {
-    const rail = paint(theme, "muted", "│ ");
-    const lines = content.split("\n");
-    return {
-      text: lines
-        .map((line, index) =>
-          line.length === 0 && index === lines.length - 1
-            ? line
-            : `${rail}${line}`,
-        )
-        .join("\n"),
-      paddingX: RAIL_INSET_X,
-    };
-  }
-  if (COMPACT_EDIT_CHROME === "padded" || COMPACT_EDIT_CHROME === "self") {
-    return { text: content, paddingX: 2 };
-  }
-  return { text: content, paddingX: 0 };
+  const rail = paint(theme, "muted", "│ ");
+  const lines = content.split("\n");
+  return {
+    text: lines
+      .map((line, index) =>
+        line.length === 0 && index === lines.length - 1
+          ? line
+          : `${rail}${line}`,
+      )
+      .join("\n"),
+    paddingX: RAIL_INSET_X,
+  };
 }
 
 function textCall(content: string): Text {
-  // rail：标题不带 │，但跟轨道同一条左边线。paddingY 仍必须为 0。
-  if (COMPACT_EDIT_CHROME === "rail") {
-    return new Text(content, RAIL_INSET_X, 0);
-  }
-  if (COMPACT_EDIT_CHROME === "padded" || COMPACT_EDIT_CHROME === "self") {
-    return new Text(content, 2, 0);
-  }
-  return new Text(content, 0, 0);
+  // 标题不带 │，但跟轨道同一条左边线。paddingY 必须为 0。
+  return new Text(content, RAIL_INSET_X, 0);
 }
 
 function textResult(content: string, theme?: CompactEditTheme): Text {
@@ -352,7 +333,7 @@ function textResult(content: string, theme?: CompactEditTheme): Text {
  *
  * 折叠态自己画标题和截短 diff；Ctrl+O 展开才把原 hashline renderer 还回去。
  * 文件名由 editTarget 直接查会话注册表，折叠态不再调用原 renderCall。
- * WeakSet 同时记下原对象和包装对象，避免 hook 注册后再被 getAllTools 回写套第二层。
+ * WeakSet 同时记下原对象和包装对象，避免同一工具被 decorate 两次。
  */
 export function compactEditToolUi(tool: ToolDefinition): ToolDefinition {
   if (!HASHLINE_VISIBLE_EDIT_TOOL_NAME_SET.has(tool.name)) {
@@ -366,10 +347,8 @@ export function compactEditToolUi(tool: ToolDefinition): ToolDefinition {
   const originalResult = tool.renderResult;
   const wrapped = {
     ...tool,
-    // B/C 去绿壳。renderShell 是工具级属性，展开态 hashline 原预览也会丢绿底。
-    ...(COMPACT_EDIT_CHROME === "padded"
-      ? {}
-      : { renderShell: "self" as const }),
+    // 去绿壳。renderShell 是工具级属性，展开态 hashline 原预览也会丢绿底。
+    renderShell: "self" as const,
     renderCall(
       args: unknown,
       theme: CompactEditTheme,

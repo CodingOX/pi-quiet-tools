@@ -2,25 +2,17 @@ import { HASHLINE_SILENT_TOOL_NAME_SET } from "./hashline-tools.js";
 import { visibleTerminalText } from "./terminal-text.js";
 
 /**
- * 静默工具集合。名字来自 hashline-tools.ts 这一唯一事实来源。
+ * 静默判定直接用 hashline-tools 的集合。
  *
  * 只含读 / 搜索 / 撤销（含旧名）。replace / insert 是可见编辑，不能进这里，
  * 否则截短 diff 会被聚合补丁当成逐条静默行吞掉。
  */
-export const SILENT_AGGREGATE_TOOLS = HASHLINE_SILENT_TOOL_NAME_SET;
-
 const LEDGER_HEADER_PATTERN = /Tools\s*\(\s*\d+\s+calls?/;
 
-export function visibleToolLine(line: string): string {
- return visibleTerminalText(line);
-}
-
-export function shouldSilenceAggregateTool(toolName: string): boolean {
- return SILENT_AGGREGATE_TOOLS.has(toolName);
-}
-
 export function looksLikeAggregateLedger(lines: readonly string[]): boolean {
- return lines.some((line) => LEDGER_HEADER_PATTERN.test(visibleToolLine(line)));
+ return lines.some((line) =>
+  LEDGER_HEADER_PATTERN.test(visibleTerminalText(line)),
+ );
 }
 
 export interface SilentAggregateOptions {
@@ -44,7 +36,7 @@ export function resolveSilentAggregateLines(
  if (looksLikeAggregateLedger(lines)) {
   return [...lines];
  }
- if (!shouldSilenceAggregateTool(toolName)) {
+ if (!HASHLINE_SILENT_TOOL_NAME_SET.has(toolName)) {
   return [...lines];
  }
  return [];

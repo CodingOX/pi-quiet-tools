@@ -8,10 +8,7 @@ import { installQuietSubagentNotificationRenderer } from "@pi-quiet-tools/notify
 import { installHostWatchdog } from "@pi-quiet-tools/watchdog";
 import { registerMarkdownEnhance } from "@pi-quiet-tools/markdown-enhance";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
-import {
-  applyMinimalUiToHashlineTools,
-  installRegisterToolHook,
-} from "./src/register-tool-hook.js";
+import { installRegisterToolHook } from "./src/register-tool-hook.js";
 import { displayIntentAlreadyActive } from "./src/upstream-loader.js";
 // 这两个包现在指向 vendor/ 内的只读镜像（见 vendor/README.md）。
 // 包名保持与上游一致，这样上游同步进来时不需要改这里的 import。
@@ -51,8 +48,8 @@ export default function piToolsGlueExtension(pi: ExtensionAPI): void {
       true,
   );
   // 无条件加载 hashline：加载期无法判断它是否已注册，详见 upstream-loader.ts 顶部说明。
+  // 静默 / 截短 UI 在 registerTool hook 里已经套上，这里不再 getAllTools 回写。
   hashlineExtension(pi);
 
-  applyMinimalUiToHashlineTools(pi);
   installAggregateUiPatches(pi);
 }

@@ -1,17 +1,12 @@
 import { ToolExecutionComponent } from "@earendil-works/pi-coding-agent";
 import { omitCollapsedLedgerNarration } from "./aggregate-omit-ledger-narration.js";
-import {
-  resolveSilentAggregateLines,
-  SILENT_AGGREGATE_TOOLS,
-} from "./aggregate-silent-ledger.js";
+import { resolveSilentAggregateLines } from "./aggregate-silent-ledger.js";
 
 const AGGREGATE_PATCH_KEY = Symbol.for(
   "pi-tool-display-intent.aggregate-tool-execution.v1",
 );
 const SILENT_WRAP_KEY = Symbol.for("pi-tools.aggregate-silent-wrap.v5");
 const SILENT_INNER_KEY = Symbol.for("pi-tools.aggregate-silent-inner.v2");
-
-export { SILENT_AGGREGATE_TOOLS };
 
 interface AggregatePatchState {
   patchedRender?: (width: number) => string[];
