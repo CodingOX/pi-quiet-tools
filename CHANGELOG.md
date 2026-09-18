@@ -58,7 +58,7 @@
   升级动机是**止血**而非新功能：4.2.5 在 `src/hash-store.ts` 顶层
   `await import("node:sqlite")`，而 `index.ts` 顶层引用它，导致 Bun 宿主下
   **整个扩展加载失败**（Bun 1.3.14 实测）；且模块级 `currentKey` 会被子会话的
-  `session_start` 覆盖，宿主锚点在本会话内无法恢复（4.3.4 由 ALS 作用域修复）。
+  `session_start` 覆盖，宿主锚点在本会话内无法恢复（4.3.4 由 `AsyncLocalStorage` 作用域修复）。
 
   评估过程与逐项证据记录在 [`docs/upstream-sync.md`](./docs/upstream-sync.md)。
 

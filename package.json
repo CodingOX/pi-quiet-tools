@@ -31,7 +31,9 @@
     "README.zh-CN.md",
     "LICENSE",
     "THIRD-PARTY-NOTICES.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "CONTEXT.md",
+    "docs"
   ],
   "dependencies": {
     "@pi-quiet-tools/notify": "file:./packages/notify",
