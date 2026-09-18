@@ -1,25 +1,24 @@
 # pi-quiet-tools
 
-A single Pi extension package that makes the terminal quieter without taking anything away from the model.
-
-`pi-quiet-tools` bundles two upstream layers behind one install: hash-anchored file editing (`pi-hashline-edit-pro`) and intent-aware tool rendering (`@zhcsyncer/pi-tool-display-intent`). On top of them it adds a thin glue layer that decides *what the terminal shows* — compact tool ledgers, live open rows, useful interim Markdown, and the final answer.
+A single Pi extension package that makes the terminal quieter without taking anything away from the model. It bundles everything it needs — hash-anchored file editing (`pi-hashline-edit-pro`), intent-aware tool rendering (`@zhcsyncer/pi-tool-display-intent`), a bash runaway watchdog, and compact subagent notices — and its own glue layer decides *what the terminal shows*: compact tool ledgers, live open rows, useful interim Markdown, and the final answer. One `pi install` covers all of it.
 
 [简体中文](./README.zh-CN.md)
 
-## What it combines
+## What ships in this package
 
-| Package | Responsibility |
+One `pi install` lands everything: the glue layer **is** this package, and both upstream layers ship inside it. There is no separate glue step, no file to copy by hand, and no second package to add.
+
+| Ships in the bundle | Responsibility |
 | --- | --- |
-| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | Hash-anchored `read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` for the model |
-| [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | Tool renderers, result compaction, diffs, custom/MCP tool decoration, and Tools ledgers |
-| `src` | Load order, duplicate guards, quiet renderers, narration handling, and compact subagent notifications |
-
-Two extra packages ship with the bundle. They are bundled as real files, so a single install covers them, but each can also be published and installed alone:
-
-| Standalone package | Responsibility |
-| --- | --- |
+| `index.ts` + `src/` — **this package's own glue** | Load order, duplicate guards, quiet renderers, narration handling, the compact edit UI, and configuration seeding |
+| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) — vendored | Hash-anchored `read`, `replace`, `insert`, `undo_last_change`, and `anchor_grep` for the model |
+| [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) — vendored fork | Tool renderers, result compaction, diffs, custom/MCP tool decoration, and Tools ledgers |
 | `@pi-quiet-tools/watchdog` | Bash runaway gate. Nudges after 80 bash calls, then blocks later tools so the model has to speak. |
 | `@pi-quiet-tools/notify` | Compresses subagent completion notices to one status line. |
+
+All five rows are reachable from the single install. On a clean clone, `npm install --omit=dev` — exactly what Pi runs — is enough for Pi's own extension loader to register all ten tools (`read`, `write`, `bash`, `replace`, `insert`, `anchor_grep`, `undo_last_change`, and the rest). Nothing has to be copied to another machine by hand.
+
+The bottom two rows are also real, independently publishable packages. Neither is published to npm yet, and neither needs a separate install: reach for them only if you want the watchdog or the compact notices *without* the quiet ledger. Installing them alongside the bundle double-registers their event handlers.
 
 Both upstream layers are **vendored in this repository** rather than resolved from npm. `vendor/hashline` is a read-only mirror of `pi-hashline-edit-pro`; `vendor/display-intent` is a fork of `@zhcsyncer/pi-tool-display-intent` that carries local-only work. See [`vendor/README.md`](./vendor/README.md) and [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md).
 
@@ -148,20 +147,43 @@ If you set `PI_CODING_AGENT_DIR`, all of the above resolves against that directo
 
 ## Install
 
-### From GitHub
+Every path below installs the same complete bundle. The glue layer, both vendored upstreams, and the two standalone packages all arrive from this one source — there is nothing to copy by hand afterwards.
+
+### From GitHub (recommended)
+
+Pi clones the repository into its own git directory, runs `npm install --omit=dev` there, and adds the source to your settings:
 
 ```bash
 pi install git:github.com/CodingOX/pi-quiet-tools
 ```
 
-The `https://github.com/CodingOX/pi-quiet-tools` form works the same way.
+The protocol URL form is equivalent and takes the same ref suffix:
+
+```bash
+pi install https://github.com/CodingOX/pi-quiet-tools
+pi install git:github.com/CodingOX/pi-quiet-tools@main   # pin a branch or tag
+```
+
+Verified end to end: the clone lands at `~/.pi/agent/git/github.com/CodingOX/pi-quiet-tools`, all four bundled dependencies resolve, and Pi's own extension loader registers all ten tools from `index.ts`.
+
+> [!NOTE]
+> `github:CodingOX/pi-quiet-tools` is **not** a Pi package source. Pi only recognizes the `git:` prefix or a protocol URL — anything else is treated as a local path and fails with `Path does not exist`.
 
 There is no submodule and no `preinstall` hook. Every third-party layer is committed in `vendor/`, so a plain clone is complete — `--recurse-submodules` is neither needed nor meaningful.
 
-`github:CodingOX/pi-quiet-tools` is **not** a Pi package source; Pi only recognizes the `git:` prefix or a protocol URL.
-
 > [!WARNING]
-> Do not run `pi install npm:pi-quiet-tools`. This repository is not published to npm, and an **unrelated** package already owns that name. Pi would install a different tool that has nothing to do with this one.
+> Do not run `pi install npm:pi-quiet-tools`. This repository is not published to npm, and an **unrelated** package already owns that name. Pi would install a different tool that has nothing to do with this one. The scoped names `@pi-quiet-tools/pi-quiet-tools`, `@pi-quiet-tools/watchdog`, and `@pi-quiet-tools/notify` are unclaimed but not published either.
+
+### The standalone packages
+
+`@pi-quiet-tools/watchdog` and `@pi-quiet-tools/notify` are not published to npm. They do not need to be installed separately — the bundle already contains them, and installing them alongside it double-registers their event handlers. From a local checkout you can still address them directly:
+
+```bash
+pi install /absolute/path/to/pi-quiet-tools/packages/watchdog
+pi install /absolute/path/to/pi-quiet-tools/packages/notify
+```
+
+A git source cannot target a subdirectory — `git:github.com/CodingOX/pi-quiet-tools/packages/watchdog` is not a valid repository, and Pi does not support the `tree/main/...` form. Use the bundle for those two.
 
 ### From a local checkout
 
@@ -172,7 +194,7 @@ npm install
 pi install /absolute/path/to/pi-quiet-tools
 ```
 
-After installing, restart Pi or run `/reload`.
+`pi install` also accepts any path under this repo, including the two standalone packages shown above. After installing, restart Pi or run `/reload`.
 
 ### Remove previous standalone installs
 
@@ -185,7 +207,12 @@ pi remove npm:@zhcsyncer/pi-tool-display-intent
 
 ### Updating
 
-`pi update` refetches this repository and re-runs its install. You get exactly the vendored code committed on the revision it checks out — there is no nested channel that could drift on its own.
+```bash
+pi update                                              # everything
+pi update git:github.com/CodingOX/pi-quiet-tools        # just this one
+```
+
+`pi update` refetches this repository and re-runs `npm install` there. You get exactly the vendored code committed on the revision it checks out — there is no nested channel that could drift on its own.
 
 For a local checkout, pull and reinstall:
 

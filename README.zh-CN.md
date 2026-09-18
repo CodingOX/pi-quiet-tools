@@ -2,24 +2,25 @@
 
 一个 Pi 扩展包，让终端更安静，但不从模型手里拿走任何东西。
 
-`pi-quiet-tools` 把两个上游层收在一次安装里：Hash 锚点编辑（`pi-hashline-edit-pro`）与意图感知的工具渲染（`@zhcsyncer/pi-tool-display-intent`）。在它们之上是一层很薄的 glue，只决定**终端显示什么** —— 紧凑的工具账本、活跃的 Open rows、有用的中途 Markdown，以及最终回答。
+`pi-quiet-tools` 是一个自包含的 Pi 扩展包：Hash 锚点编辑（`pi-hashline-edit-pro`）、意图感知的工具渲染（`@zhcsyncer/pi-tool-display-intent`）、bash 失控看门狗、紧凑子代理通知，全都随它一起发布。它自己的 glue 层只决定**终端显示什么** —— 紧凑的工具账本、活跃的 Open rows、有用的中途 Markdown，以及最终回答。一次 `pi install` 全部到位。
 
 [English](./README.md)
 
-## 组合了什么
+## 这个包里装了什么
 
-| 包 | 职责 |
+一次 `pi install` 全部到位：glue 层**就是本包自己**，两个上游层也随包一起发布。没有单独的「胶水安装步骤」，没有要手工拷贝的文件，也没有第二个包要加。
+
+| 随包发布 | 职责 |
 | --- | --- |
-| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) | 给模型用的 Hash 锚点 `read`、`replace`、`insert`、`undo_last_change`、`anchor_grep` |
-| [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) | 工具 renderer、结果压缩、diff、custom/MCP 工具装饰，以及 Tools 账本 |
-| `src` | 加载顺序、重复加载守卫、静默 renderer、旁白处理、子代理通知紧凑化 |
-
-随包一起发布的还有两个包。它们以真实文件形式被打进 bundle，装一次就全部到位；同时也各自可以被单独发布与安装：
-
-| 独立包 | 职责 |
-| --- | --- |
+| `index.ts` + `src/` —— **本包自己的 glue** | 加载顺序、重复加载守卫、静默 renderer、旁白处理、截短编辑 UI、配置 seed |
+| [pi-hashline-edit-pro](https://github.com/YuGiMob/pi-hashline-edit-pro) —— 内嵌镜像 | 给模型用的 Hash 锚点 `read`、`replace`、`insert`、`undo_last_change`、`anchor_grep` |
+| [@zhcsyncer/pi-tool-display-intent](https://github.com/zhcsyncer/pi-extensions/tree/main/packages/pi-tool-display-intent) —— 内嵌 fork | 工具 renderer、结果压缩、diff、custom/MCP 工具装饰，以及 Tools 账本 |
 | `@pi-quiet-tools/watchdog` | bash 失控闸门。80 次 bash 后先 nudge，再拦住后续工具逼模型开口。 |
 | `@pi-quiet-tools/notify` | 把子代理完成通知压成一行状态。 |
+
+上面五行都从这一次安装里可达。在一个干净 clone 上，`npm install --omit=dev`（就是 Pi 安装时跑的那条命令）之后，Pi 自己的扩展加载器即可注册全部十个工具（`read`、`write`、`bash`、`replace`、`insert`、`anchor_grep`、`undo_last_change` 等）。不需要往别人机器上手工拷任何东西。
+
+最后两行同时也是**真实可独立发布**的包。两者都还没发到 npm，也都不需要单独安装：只有当你想要看门狗或紧凑通知、但**不要**安静账本时才需要它们。与主包同时安装会把它们的事件处理器重复注册一遍。
 
 两个上游层现在是**内嵌在本仓库**里的，不再从 npm 解析：`vendor/hashline` 是 `pi-hashline-edit-pro` 的只读镜像；`vendor/display-intent` 是 `@zhcsyncer/pi-tool-display-intent` 的 fork，含本地独占工作。见 [`vendor/README.md`](./vendor/README.md) 与 [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md)。
 
@@ -149,20 +150,43 @@ The read path is already silent. Next I'll tighten the aggregate wrap.
 
 ## 安装
 
-### 从 GitHub 安装
+下面每条路径装到的都是同一份完整 bundle：glue 层、两个内嵌上游、两个独立包，全部来自这一个源 —— 装完不需要再手工拷任何文件。
+
+### 从 GitHub 安装（推荐）
+
+Pi 会把仓库 clone 到它自己的 git 目录，在那里执行 `npm install --omit=dev`，并把该源写进你的 settings：
 
 ```bash
 pi install git:github.com/CodingOX/pi-quiet-tools
 ```
 
-`https://github.com/CodingOX/pi-quiet-tools` 这种写法效果相同。
+协议 URL 写法等价，并且同样支持 ref 后缀：
+
+```bash
+pi install https://github.com/CodingOX/pi-quiet-tools
+pi install git:github.com/CodingOX/pi-quiet-tools@main   # 钉住某个分支或 tag
+```
+
+端到端实测：clone 落在 `~/.pi/agent/git/github.com/CodingOX/pi-quiet-tools`，四个随包依赖全部解析成功，Pi 自己的扩展加载器从 `index.ts` 注册出全部十个工具。
+
+> [!NOTE]
+> `github:CodingOX/pi-quiet-tools` **不是** Pi 的包来源写法。Pi 只认 `git:` 前缀或协议 URL —— 其它写法会被当成本地路径，报 `Path does not exist`。
 
 本仓库没有 submodule，也没有 `preinstall` 钩子。所有第三方层都提交在 `vendor/` 里，普通 clone 就是完整的 —— 不需要 `--recurse-submodules`，加了也没有意义。
 
-`github:CodingOX/pi-quiet-tools` **不是** Pi 的包来源写法；Pi 只认 `git:` 前缀或协议 URL。
-
 > [!WARNING]
-> 不要执行 `pi install npm:pi-quiet-tools`。本仓库尚未发布到 npm，而这个包名**已被另一个完全无关的包占用**。执行会装上一个和本项目毫无关系的工具。
+> 不要执行 `pi install npm:pi-quiet-tools`。本仓库尚未发布到 npm，而这个包名**已被另一个完全无关的包占用**。执行会装上一个和本项目毫无关系的工具。带 scope 的 `@pi-quiet-tools/pi-quiet-tools`、`@pi-quiet-tools/watchdog`、`@pi-quiet-tools/notify` 虽然没被占用，但也同样尚未发布。
+
+### 两个独立包
+
+`@pi-quiet-tools/watchdog` 与 `@pi-quiet-tools/notify` 没有发布到 npm。它们**不需要**单独安装 —— 主包已经含它们，与主包同时装会把事件处理器重复注册。从本地 checkout 可以直接指向它们：
+
+```bash
+pi install /absolute/path/to/pi-quiet-tools/packages/watchdog
+pi install /absolute/path/to/pi-quiet-tools/packages/notify
+```
+
+git 源**不能**指向子目录 —— `git:github.com/CodingOX/pi-quiet-tools/packages/watchdog` 不是合法仓库，Pi 也不支持 `tree/main/...` 那种写法。这两个包请走主包 bundle。
 
 ### 从本地 checkout 安装
 
@@ -173,7 +197,7 @@ npm install
 pi install /absolute/path/to/pi-quiet-tools
 ```
 
-安装后重启 Pi，或执行 `/reload`。
+`pi install` 也接受本仓库下的任意路径，包括上面那两个独立包。安装后重启 Pi，或执行 `/reload`。
 
 ### 移除之前独立安装的扩展
 
@@ -186,7 +210,12 @@ pi remove npm:@zhcsyncer/pi-tool-display-intent
 
 ### 更新
 
-`pi update` 会重新拉取本仓库并重跑安装。你拿到的就是该修订里提交的那份 vendor 代码 —— 不存在一条能自己漂移的嵌套通道。
+```bash
+pi update                                              # 全部
+pi update git:github.com/CodingOX/pi-quiet-tools        # 只更新这一个
+```
+
+`pi update` 会重新拉取本仓库并在那里重跑 `npm install`。你拿到的就是该修订里提交的那份 vendor 代码 —— 不存在一条能自己漂移的嵌套通道。
 
 本地 checkout 则拉取后重装：
 
