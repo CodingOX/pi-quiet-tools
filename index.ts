@@ -6,6 +6,7 @@ import {
 } from "./src/aggregate-keep-narration.js";
 import { installQuietSubagentNotificationRenderer } from "@pi-quiet-tools/notify/renderer";
 import { installHostWatchdog } from "@pi-quiet-tools/watchdog";
+import { registerMarkdownEnhance } from "@pi-quiet-tools/markdown-enhance";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
 import {
   applyMinimalUiToHashlineTools,
@@ -36,6 +37,9 @@ export default function piToolsGlueExtension(pi: ExtensionAPI): void {
   installRegisterToolHook(pi);
   installQuietSubagentNotificationRenderer(pi);
   installHostWatchdog(pi);
+  // Markdown 增强：与 display-intent / hashline 不抢槽位——本仓库不注册 markdownTransformer 的
+  // 其它消费者，它只包 AssistantMessageComponent.render；两个口味开关默认关，见 packages/markdown-enhance/src/config.ts。
+  registerMarkdownEnhance(pi);
 
   if (!displayIntentAlreadyActive(pi)) {
     toolDisplayIntentExtension(pi);

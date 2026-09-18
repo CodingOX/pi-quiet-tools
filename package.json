@@ -14,6 +14,7 @@
     "watchdog"
   ],
   "workspaces": [
+    "packages/markdown-enhance",
     "packages/notify",
     "packages/watchdog"
   ],
@@ -36,20 +37,24 @@
     "docs"
   ],
   "dependencies": {
+    "@pi-quiet-tools/markdown-enhance": "file:./packages/markdown-enhance",
     "@pi-quiet-tools/notify": "file:./packages/notify",
     "@pi-quiet-tools/watchdog": "file:./packages/watchdog",
     "@zhcsyncer/pi-tool-display-intent": "file:./vendor/display-intent",
     "diff": "^9.0.0",
     "file-type": "^22.0.2",
+    "grok-mermaid": "^0.2.2",
     "pi-hashline-edit-pro": "file:./vendor/hashline",
     "xxhash-wasm": "^1.1.0"
   },
   "bundledDependencies": [
+    "@pi-quiet-tools/markdown-enhance",
     "@pi-quiet-tools/notify",
     "@pi-quiet-tools/watchdog",
     "@zhcsyncer/pi-tool-display-intent",
     "diff",
     "file-type",
+    "grok-mermaid",
     "pi-hashline-edit-pro",
     "xxhash-wasm"
   ],
@@ -61,8 +66,8 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && npm run typecheck -w @pi-quiet-tools/watchdog && npm run typecheck -w @pi-quiet-tools/notify",
-    "test": "npm run test:core && npm run test -w @pi-quiet-tools/watchdog && npm run test -w @pi-quiet-tools/notify",
+    "typecheck": "tsc --noEmit && npm run typecheck -w @pi-quiet-tools/markdown-enhance && npm run typecheck -w @pi-quiet-tools/watchdog && npm run typecheck -w @pi-quiet-tools/notify",
+    "test": "npm run test:core && npm run test -w @pi-quiet-tools/markdown-enhance && npm run test -w @pi-quiet-tools/watchdog && npm run test -w @pi-quiet-tools/notify",
     "test:core": "npx --yes tsx --tsconfig tsconfig.test.json --test src/*.test.ts && npx --yes tsx --tsconfig tests/tsconfig.test.json --test tests/*.test.ts",
     "vendor:pull": "bash scripts/vendor-pull.sh"
   },

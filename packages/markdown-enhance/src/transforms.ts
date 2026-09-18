@@ -1,0 +1,341 @@
+import { render as renderMermaid, sourceBox } from "grok-mermaid";
+
+/**
+ * markdown-enhance 的纯变换层。
+ *
+ * 这里只放「字符串进、字符串出」的纯函数，不碰 Pi API、不装原型补丁——
+ * 原型补丁在 code-fence.ts。这样测试可以完全不启动 Pi 就覆盖全部分支。
+ *
+ * 管道顺序（见 createMarkdownTransformer）是有意的：
+ *   跨行链接规整 → 圈数字 → mermaid → 提示框 → 裸 URL
+ * 先规整链接再渲染图，避免图行里的方括号被链接正则误伤；
+ * 裸 URL 放最后，才不会把前面步骤产出的 markdown 链接再包一层。
+ */
+
+/** registerMarkdownTransformer 传给回调的 context。字段都是可选的。 */
+export interface MarkdownContext {
+  messageType?: string;
+  isStreaming?: boolean;
+  availableWidth?: number;
+}
+
+export interface TransformerOptions {
+  /** 通用增强：mermaid 方言、提示框、裸 URL 转链接。 */
+  common: boolean;
+  /** 圈数字 ①②③ → (1)(2)(3)。 */
+  deCircled: boolean;
+}
+
+// ============================================================================
+// Mermaid 方言渲染
+// ============================================================================
+
+// 内置 mermaid transformer 只认 ```mermaid，这里补上 grok-mermaid 支持的其他方言
+const DIAGRAM_FENCE =
+  /^(`{3,})\s*(mermaid|statediagram|statediagram-v2|classdiagram|classdiagram-v2|erdiagram|sequencediagram)\s*$/i;
+const FENCE_OPEN = /^(`{3,})/;
+const FENCE_CLOSE = /^`{3,}\s*$/;
+
+/** 把一行图内容包成行内代码（保持空格与框线字符对齐）。 */
+function codeSpan(line: string): string {
+  const content = line || "\u00a0";
+  const longestRun = Math.max(
+    0,
+    ...Array.from(content.matchAll(/`+/g), (m) => m[0].length),
+  );
+  const fence = "`".repeat(longestRun + 1);
+  const padding = content.startsWith("`") || content.endsWith("`") ? " " : "";
+  return `${fence}${padding}${content}${padding}${fence}`;
+}
+
+/** 渲染失败或图宽超出终端宽度时，把源码包进带标题的框里显示。 */
+function framedSource(src: string, width: number): string {
+  const box = sourceBox(src, Math.max(8, width - 2));
+  return `\`\`\`\n${box.plain.join("\n")}\n\`\`\``;
+}
+
+/** 解析 ```diagram 代码块，返回 { 源码, 块内行数 }；未闭合返回 null。 */
+function collectFence(
+  lines: string[],
+  i: number,
+): { diagram: string; next: number } | null {
+  const open = lines[i].match(FENCE_OPEN)?.[0] ?? "```";
+  const src: string[] = [];
+  let j = i + 1;
+  while (j < lines.length) {
+    if (lines[j].match(FENCE_CLOSE) && lines[j].startsWith(open)) {
+      return { diagram: src.join("\n"), next: j + 1 };
+    }
+    src.push(lines[j]);
+    j++;
+  }
+  return null; // 未闭合：放弃转换，保持原文
+}
+
+// grok-mermaid 渲染结果缓存：resize/restored 重绘会重复转换，按源码缓存 art。
+// 固定上限 50 条，防长期会话膨胀；超出后清空重来。
+const ART_CACHE = new Map<string, ReturnType<typeof renderMermaid>>();
+const ART_CACHE_MAX = 50;
+
+/** 获取/计算 mermaid art（带缓存）。 */
+function getArt(src: string): ReturnType<typeof renderMermaid> | null {
+  const cached = ART_CACHE.get(src);
+  if (cached) return cached;
+  let art = null;
+  try {
+    art = renderMermaid(src);
+  } catch {
+    art = null;
+  }
+  if (ART_CACHE.size >= ART_CACHE_MAX) ART_CACHE.clear();
+  if (art) ART_CACHE.set(src, art);
+  return art;
+}
+
+/** Mermaid 方言代码块 → ASCII 图（流式跳过）。 */
+export function renderDiagrams(
+  markdown: string,
+  context?: Pick<MarkdownContext, "isStreaming" | "availableWidth">,
+): string {
+  const { isStreaming = false, availableWidth } = context ?? {};
+  if (isStreaming) return markdown;
+  const lines = markdown.split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const fence = line.match(DIAGRAM_FENCE);
+    if (fence) {
+      const collected = collectFence(lines, i);
+      if (collected) {
+        const { diagram, next } = collected;
+        // grok-mermaid 需要源码自带类型头，方言头在 fence 标签里时补回去
+        const label = fence[2];
+        const src =
+          label.toLowerCase() === "mermaid" ? diagram : `${label}\n${diagram}`;
+        const art = getArt(src);
+        const width = availableWidth ?? 80;
+        if (art && art.width <= width) {
+          // 图行用硬换行（行尾两空格）连接，防止 Markdown 软换行合并行
+          out.push(art.plain.map(codeSpan).join("  \n"));
+        } else {
+          out.push(framedSource(src, width));
+        }
+        i = next;
+        continue;
+      }
+      // 未闭合：保持原文
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join("\n");
+}
+
+// ============================================================================
+// GitHub 风格提示框（admonition）
+// ============================================================================
+
+const ADMONITION = /^>\s*\[\s*!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\s*\]\s*(.*)$/i;
+const ADMONITION_STYLE: Record<string, { icon: string; label: string }> = {
+  NOTE: { icon: "💡", label: "NOTE" },
+  TIP: { icon: "✅", label: "TIP" },
+  IMPORTANT: { icon: "❗", label: "IMPORTANT" },
+  WARNING: { icon: "⚠️", label: "WARNING" },
+  CAUTION: { icon: "⚠️", label: "CAUTION" },
+};
+
+/**
+ * 把 > [!TYPE] 及其后续 > 行转成带加粗标签的引用块，视觉上成提示框。
+ * 多行内容用空格合并为一行。返回 null 表示该行不是提示框。
+ */
+function renderAdmonition(
+  lines: string[],
+  i: number,
+): { output: string[]; next: number } | null {
+  const m = lines[i].match(ADMONITION);
+  if (!m) return null;
+  const style = ADMONITION_STYLE[m[1].toUpperCase()];
+  const body: string[] = [m[2]];
+  let j = i + 1;
+  while (j < lines.length && /^>\s?/.test(lines[j]) && !ADMONITION.test(lines[j])) {
+    body.push(lines[j].replace(/^>\s?/, ""));
+    j++;
+  }
+  while (body.length > 0 && body[body.length - 1].trim() === "") body.pop();
+  // 内容合并为一行，作为引用块正文
+  const content = body.join(" ").trim();
+  // 保留引用块形态（pi 渲染为左侧竖线），标签加粗
+  return {
+    output: [`> **${style.icon} ${style.label}**${content ? ` ${content}` : ""}`, ""],
+    next: j,
+  };
+}
+
+/** GitHub 风格提示框 → 加粗标签引用块（跳过代码块）。 */
+export function renderAdmonitions(markdown: string): string {
+  const lines = markdown.split("\n");
+  const out: string[] = [];
+  let inFence = false;
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      i++;
+      continue;
+    }
+    if (!inFence && /^>\s*\[\s*!/i.test(line)) {
+      const result = renderAdmonition(lines, i);
+      if (result) {
+        out.push(...result.output);
+        i = result.next;
+        continue;
+      }
+    }
+    out.push(line);
+    i++;
+  }
+  return out.join("\n");
+}
+
+// ============================================================================
+// 裸 URL 转可点击超链接
+// ============================================================================
+
+const URL_RE =
+  /(?<!<)(?<!\]\()https?:\/\/[^\s<>'"|，。；：！？、」』】（）【】《》『』「」]+/g;
+const TRIM_URL_RE = /[.,;:!?】」』"'》）}]+$/;
+
+/**
+ * 去掉 URL 尾部标点；括号按平衡保留（如 Wikipedia 链接含括号、
+ * IPv6 地址含 [::1]），尾部不成对的 ] 与 ) 会截掉。
+ */
+export function trimUrl(url: string): string {
+  let t = url.replace(TRIM_URL_RE, "");
+  for (;;) {
+    if (t.endsWith(")") && (t.match(/\(/g)?.length ?? 0) < (t.match(/\)/g)?.length ?? 0)) {
+      t = t.slice(0, -1);
+    } else if (t.endsWith("]") && (t.match(/\[/g)?.length ?? 0) < (t.match(/\]/g)?.length ?? 0)) {
+      t = t.slice(0, -1);
+    } else {
+      break;
+    }
+  }
+  return t;
+}
+
+/**
+ * 把代码块和行内代码外的裸 URL 转成 markdown 链接。
+ * 已有的 [text](url) / ![alt](url) / <url> 自动链接用 lookbehind 排除。
+ */
+export function linkifyUrls(markdown: string): string {
+  const lines = markdown.split("\n");
+  const out: string[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      inFence = !inFence;
+      out.push(line);
+      continue;
+    }
+    if (inFence) {
+      out.push(line);
+      continue;
+    }
+    // 行内代码（`...`）按反引号分片，只处理偶数片（代码外）
+    const parts = line.split("`");
+    for (let p = 0; p < parts.length; p++) {
+      if (p % 2 === 0) {
+        parts[p] = parts[p].replace(URL_RE, (url) => {
+          const trimmed = trimUrl(url);
+          if (trimmed.length === 0) return url;
+          return `[${trimmed}](${trimmed})`;
+        });
+      }
+    }
+    out.push(parts.join("`"));
+  }
+  return out.join("\n");
+}
+
+// ============================================================================
+// 圈数字 → 半角括号
+// ============================================================================
+
+// Nerd Font 补丁字形（U+2460-U+2473）ink 超界，DirectWrite 下渲染会压住相邻字符；
+// 转成 ASCII "(n)" 后任何字体下宽度一致。U+2460-U+2473 连续，差值即序号。
+const CIRCLED_RE = /[①-⑳]/g;
+
+export function deCircled(markdown: string): string {
+  return markdown.replace(CIRCLED_RE, (ch) => {
+    const code = ch.codePointAt(0);
+    // 正则只匹配 U+2460–U+2473，codePointAt 必有值；防御性返回原文而非断言。
+    return code === undefined ? ch : `(${code - 0x2460 + 1})`;
+  });
+}
+
+// ============================================================================
+// 跨行链接规整
+// ============================================================================
+
+const MULTILINE_LINK_RE = /\[([^\]\n]*(?:\n[^\]\n]*)+)\](?=\()/g;
+
+/** 防止 Markdown 跨行链接把行尾填充空格纳入 OSC 8 点击区。 */
+export function normalizeMultilineLinks(markdown: string): string {
+  const out: string[] = [];
+  let prose: string[] = [];
+  let inFence = false;
+  const flush = () => {
+    if (prose.length === 0) return;
+    out.push(
+      prose.join("\n").replace(MULTILINE_LINK_RE, (_match, label: string) => {
+        const normalized = label.replace(/[ \t]*\n[ \t]*/g, " ").trim();
+        return `[${normalized}]`;
+      }),
+    );
+    prose = [];
+  };
+  for (const line of markdown.split("\n")) {
+    if (/^```/.test(line)) {
+      flush();
+      inFence = !inFence;
+      out.push(line);
+    } else if (inFence) {
+      out.push(line);
+    } else {
+      prose.push(line);
+    }
+  }
+  flush();
+  return out.join("\n");
+}
+
+// ============================================================================
+// 管道组装
+// ============================================================================
+
+/**
+ * 组装 markdown 变换管道。
+ *
+ * 依赖「一次注册、内部链式」这个约束：Pi 的 `registerMarkdownTransformer`
+ * 在每个扩展里只有一个槽位（loader.js 直接赋值 extension.markdownTransformer），
+ * 多次注册会互相覆盖，所以所有步骤必须合成一个回调。
+ */
+export function createMarkdownTransformer(
+  options: TransformerOptions,
+): (markdown: string, context?: MarkdownContext) => string {
+  return (markdown, context) => {
+    const { messageType, isStreaming = false } = context ?? {};
+    // thinking 保持原文；普通回复即使流式中也先关闭跨行链接的空白点击区。
+    if (messageType === "assistant-thinking") return markdown;
+    markdown = normalizeMultilineLinks(markdown);
+    if (isStreaming) return markdown;
+    if (!options.common) return markdown;
+    if (options.deCircled) markdown = deCircled(markdown);
+    markdown = renderDiagrams(markdown, context);
+    markdown = renderAdmonitions(markdown);
+    return linkifyUrls(markdown);
+  };
+}
