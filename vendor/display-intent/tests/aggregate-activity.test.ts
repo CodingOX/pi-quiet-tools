@@ -216,6 +216,49 @@ test("parallel running rows have priority and done rows are replaceable and boun
 	);
 });
 
+test("sequential completions fill three open rows then slide the oldest", () => {
+	const projection = createProjection();
+	projection.startUserGroup("user-sequential");
+
+	projection.markStarted("bash-1", "bash", { command: "echo 1" });
+	projection.markComplete("bash-1", { content: [{ type: "text", text: "ok" }] }, false);
+	assert.deepEqual(
+		projection.getView("bash-1")?.displayRows.map((member) => member.toolCallId),
+		["bash-1"],
+	);
+
+	projection.markStarted("bash-2", "bash", { command: "echo 2" });
+	assert.deepEqual(
+		projection.getView("bash-2")?.displayRows.map((member) => member.toolCallId),
+		["bash-1", "bash-2"],
+		"a new running row keeps prior done rows while the window has room",
+	);
+	projection.markComplete("bash-2", { content: [{ type: "text", text: "ok" }] }, false);
+	assert.deepEqual(
+		projection.getView("bash-2")?.displayRows.map((member) => member.toolCallId),
+		["bash-1", "bash-2"],
+	);
+
+	projection.markStarted("bash-3", "bash", { command: "echo 3" });
+	projection.markComplete("bash-3", { content: [{ type: "text", text: "ok" }] }, false);
+	assert.deepEqual(
+		projection.getView("bash-3")?.displayRows.map((member) => member.toolCallId),
+		["bash-1", "bash-2", "bash-3"],
+	);
+
+	projection.markStarted("bash-4", "bash", { command: "echo 4" });
+	assert.deepEqual(
+		projection.getView("bash-4")?.displayRows.map((member) => member.toolCallId),
+		["bash-2", "bash-3", "bash-4"],
+		"the 4th running row slides out the oldest done row",
+	);
+	projection.markComplete("bash-4", { content: [{ type: "text", text: "ok" }] }, false);
+	assert.deepEqual(
+		projection.getView("bash-4")?.displayRows.map((member) => member.toolCallId),
+		["bash-2", "bash-3", "bash-4"],
+	);
+});
+
 test("in-progress Tools ledger pins the latest narration above the tool rows", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-narration-budget");
@@ -1075,14 +1118,18 @@ test("custom messages do not open a group or count as steers", () => {
 	assert.equal(projection.getView("read-1")?.steerCount, 1);
 });
 
-test("a new passthrough call still replaces the oldest retained done row", () => {
+test("passthrough calls do not consume open-row slots", () => {
 	const projection = createProjection();
 	projection.startUserGroup("user-agent-replace");
 	projection.markStarted("read-1", "read", { path: "a.ts" });
 	projection.markComplete("read-1", { content: [{ type: "text", text: "ok" }] }, false);
 	assert.equal(projection.getMember("read-1")?.retainedDone, true);
 	projection.markStarted("agent-1", "Agent", { prompt: "review" });
-	assert.equal(projection.getMember("read-1")?.retainedDone, false);
+	assert.equal(projection.getMember("read-1")?.retainedDone, true);
+	assert.deepEqual(
+		projection.getView("read-1")?.displayRows.map((member) => member.toolCallId),
+		["read-1"],
+	);
 });
 
 test("agent settled folds done rows after grace while failures remain", async () => {

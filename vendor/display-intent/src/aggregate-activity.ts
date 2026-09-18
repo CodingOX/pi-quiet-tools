@@ -1430,7 +1430,7 @@ export class AggregateProjection {
 
 		const group = this.ensureActiveGroup();
 		group.hasSeenToolBatch = true;
-		this.evictOldestRetainedDone(group);
+		this.makeRoomForIncomingRow(group, toolName);
 		const previousLeader = group.leaderToolCallId;
 		const member: AggregateMember = {
 			toolCallId,
@@ -1451,6 +1451,30 @@ export class AggregateProjection {
 		return member;
 	}
 
+
+	/**
+	 * 新聚合调用入账时，只在「进行中 + 已完成保留行」将超过 3 行窗口时
+	 * 才淘汰最旧完成行。串行 start→complete→start 必须先填满窗口，
+	 * 不能每来一条就踢掉一条。
+	 */
+	private makeRoomForIncomingRow(group: AggregateGroup, toolName: string): void {
+		if (this.isPassthrough(toolName)) return;
+		const activeCount = group.members.filter(
+			(member) =>
+				(member.state === "pending" || member.state === "running") &&
+				!this.isPassthrough(member.toolName),
+		).length;
+		while (
+			group.members.filter((member) => member.retainedDone).length + activeCount + 1 >
+			ACTIVE_ROW_LIMIT
+		) {
+			const before = group.members.filter((member) => member.retainedDone).length;
+			this.evictOldestRetainedDone(group);
+			if (group.members.filter((member) => member.retainedDone).length === before) {
+				break;
+			}
+		}
+	}
 	private evictOldestRetainedDone(group: AggregateGroup): void {
 		const oldest = group.members
 			.filter((member) => member.retainedDone)
