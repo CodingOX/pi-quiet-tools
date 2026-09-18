@@ -8,6 +8,7 @@ import { installQuietSubagentNotificationRenderer } from "@pi-quiet-tools/notify
 import { installHostWatchdog } from "@pi-quiet-tools/watchdog";
 import { registerMarkdownEnhance } from "@pi-quiet-tools/markdown-enhance";
 import { installAggregateSilentToolsPatch } from "./src/aggregate-silent-tools.js";
+import { installAggregateSteerIndentPatch } from "./src/aggregate-steer-indent.js";
 import { installRegisterToolHook } from "./src/register-tool-hook.js";
 import { displayIntentAlreadyActive } from "./src/upstream-loader.js";
 // 这两个包现在指向 vendor/ 内的只读镜像（见 vendor/README.md）。
@@ -19,6 +20,9 @@ function installAggregateUiPatches(pi: ExtensionAPI): void {
   const refresh = (): void => {
     installAggregateSilentToolsPatch();
     installAggregateKeepNarrationPatch();
+    // 展开态 steer 走 UserMessageComponent，另两个宿主管不到；必须在 display-intent
+    // 的补丁之后包到最外层，所以放在这里随 refresh 重装。
+    installAggregateSteerIndentPatch();
   };
 
   refresh();

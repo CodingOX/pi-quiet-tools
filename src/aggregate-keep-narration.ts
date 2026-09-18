@@ -7,6 +7,7 @@ import {
   omitThinkingContentBlocks,
   toRecord,
 } from "@pi-quiet-tools/watchdog/assistant-text";
+import { indentAggregateLedger } from "./aggregate-ledger-indent.js";
 import { omitCollapsedLedgerNarration } from "./aggregate-omit-ledger-narration.js";
 import { visibleTerminalText } from "./terminal-text.js";
 
@@ -16,7 +17,9 @@ const THINKING_PATCH_KEY = Symbol.for(
 const LEGACY_NARRATION_WRAP_KEY = Symbol.for(
   "pi-quiet-tools.aggregate-keep-narration.v2",
 );
-const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v3");
+// wrap key 提到 v4：包装器跨 /reload 存活，沿用旧 key 会让账本缩进逻辑
+// 被 `liveRender[NARRATION_WRAP_KEY]` 提前 return 掉，表现为改了没效果。
+const NARRATION_WRAP_KEY = Symbol.for("pi-quiet-tools.aggregate-keep-narration.v4");
 const PRECEDING_TOOLS_LEDGER_STATE_KEY = Symbol.for(
   "pi-quiet-tools.aggregate-keep-narration.preceding-tools-ledger.v1",
 );
@@ -272,7 +275,10 @@ function wrapAssistantRender(): void {
     const rendered = omitCollapsedLedgerNarration(
       renderWithTemporaryMessage(component, renderMessage, liveRender, width),
     );
-    const painted = removeExpandedNarrationFrame(rendered);
+    // 账本行右移一列对齐正文左缘（outputPad）。必须在 `omitCollapsedLedgerNarration`
+    // 与 `removeExpandedNarrationFrame` 之后 —— 它们依赖原始缩进（如 `    ` 续行判定）。
+    // 恢复出来的 narration 不缩：它是助手正文，本来就在 col 1。
+    const painted = indentAggregateLedger(removeExpandedNarrationFrame(rendered), width);
     const removedExpandedNarration = painted.length !== rendered.length;
     if (!removedExpandedNarration && painted.length > 0 && !wrapsLegacyNarration) {
       return painted;
