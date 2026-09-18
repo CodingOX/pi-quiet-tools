@@ -50,7 +50,7 @@ Stops a silent bash runaway. UI host: 80 bash → nudge; then 10 turns → later
 
 **Compact edit preview** — `compact-edit-ui.ts`
 
-`replace` / `insert` stay outside the silent ledger and paint a truncated +/- snippet (about 6 change lines). `Ctrl+O` restores hashline’s native preview.
+`replace` / `insert` stay outside the silent ledger and paint a truncated +/- snippet (about 6 change lines) with a left rail, not Pi’s default green shell. `Ctrl+O` restores hashline’s native preview.
 
 **Edit schema lock** — `hashline-edit-schema.ts`
 
@@ -99,7 +99,7 @@ Upstream behaviour we deliberately alter, without replacing the upstream package
 
 **Single extension entry.** Root `package.json` lists only `./index.ts`. Users must not also install hashline or display-intent; Pi would register the same tools twice.
 
-**Load order is load-bearing.** Glue always runs: registerTool hook → quiet subagent renderer → watchdog → display-intent (unless already active) → hashline (unconditional) → minimal hashline UI → aggregate patches. Display-intent and hashline both re-register `read` from the same factory; the later one wins. Swap them and the model gets un-anchored file content with no error. Locked by `tests/hashline-contract.test.ts`.
+**Load order is load-bearing.** Glue always runs: registerTool hook → quiet subagent renderer → watchdog → display-intent (unless already active) → hashline (unconditional) → aggregate patches. Hashline silent/compact UI is applied inside the hook at `registerTool` time, not by a later `getAllTools()` rewrite. Display-intent and hashline both re-register `read` from the same factory; the later one wins. Swap them and the model gets un-anchored file content with no error. Locked by `tests/hashline-contract.test.ts`.
 
 **Hashline is called unconditionally.** A `getAllTools()` “already loaded” guard cannot work at extension-load time (`notInitialized`). Protection is external: path dedupe, Pi’s `Tool "read" conflicts with …` diagnostic, and docs that forbid a standalone install. Reasoning lives in `src/upstream-loader.ts`.
 

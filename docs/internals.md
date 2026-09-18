@@ -94,7 +94,9 @@ Decision records and the shared vocabulary:
 5. Load hashline unconditionally. At extension-load time `pi.getAllTools()` throws, so the glue cannot
    probe whether hashline is already registered — a genuine double install is caught by Pi's own
    `Tool "read" conflicts with …` diagnostic instead.
-6. Apply minimal hashline renderers and the aggregate silent-tool/narration patches.
+6. Install the aggregate silent-tool/narration patches. Hashline silent/compact
+   renderers are already applied when `registerTool` runs (step 2); there is no
+   second `getAllTools()` rewrite after hashline loads.
 7. Refresh aggregate patches at `session_start` and `before_agent_start`.
 
 **Why the order matters.** display-intent and hashline both register tools from the *same* extension
