@@ -6,6 +6,19 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/)；日期术语与代码标识保留英文原文。
 
 ---
+## 2026-09-18 · 串行工具填满 3 行 Open 窗口
+
+开放账本本应最多展示 3 条 Open 行：进行中优先，空位给最近完成的调用。
+但每来一条新调用就无条件淘汰最旧完成行，所以串行 `bash`（完成再开下一次）
+永远只剩最后一条——表头仍是 `3 calls · 3 turns`，下面却只有一行。
+
+### Fixed
+
+- **串行调用先填满 3 行窗口再滑动**（`vendor/display-intent/src/aggregate-activity.ts`）。
+  只有 pending/running + retained done 将超过 `ACTIVE_ROW_LIMIT`（3）时才淘汰。
+  Passthrough（`Agent` 等）不占窗口槽。
+
+
 ## 2026-09-18 · Tools 账本左缘对齐正文
 
 一件纯观感修正：终端里 `Tools` 表头比它所属的助手正文更靠左一列。

@@ -119,6 +119,8 @@ Upstream behaviour we deliberately alter, without replacing the upstream package
 
 **Open rows belong to display-intent.** Glue used to recap the three-row window (hide completed silent rows, cap silent live rows at one). It no longer does — collapsed ledger lines pass through. See [ADR 0002](./adr/0002-silent-tools-share-open-rows.md).
 
+**Sequential Open rows fill the window before sliding.** `addOrUpdateMember` used to evict one retained done row on every new call, so serial `bash` (the common 4-instruction probe) only ever showed the last row. Eviction now runs only when pending/running + retained done would exceed `ACTIVE_ROW_LIMIT` (3). Passthrough tools do not consume those slots.
+
 ---
 
 ## Optimized
