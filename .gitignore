@@ -5,3 +5,4 @@ node_modules/
 
 # 本地探针/临时文件
 _*.tmp
+*.tmp.md
