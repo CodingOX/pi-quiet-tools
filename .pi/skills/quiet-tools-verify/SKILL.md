@@ -196,6 +196,14 @@ reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
 触发：让 agent 起一个子代理并等它跑完。
 期望：完成通知压成**一行状态**，不出现 transcript 路径和结果预览元数据。
 
+
+**A8 · 账本左缘与正文齐平**
+触发：让 agent 在一个回合里既写正文、又连续调用工具，然后看账本那一块。
+看：`Tools` 表头那一行与上方正文段落的第一行。
+期望：两者**左缘在同一列**（都是 col 1）。块内层级不变 —— `took …` 统计与 `✓ Bash(...)` 行仍比表头内缩 2 格。
+失败长相：表头比正文**靠左一列** → 缩进没生效（原型补丁被旧 wrap key 挡住，见 `aggregate-silent-tools.ts` / `aggregate-keep-narration.ts` 的 key 版本）；表头比正文靠右 → 被二次缩进。
+兼查 1：同一屏里的 `replace` / `insert` rail diff（`  │ +8 -1`）**不应**跟着右移 —— 它与账本共用同一条 render 原型。
+兼查 2：`Ctrl+O` 展开、且本回合有过 steer（用户插话）时，steer 的轨道块（`│ ↳ …` 与其续行）应与邻接工具行**左缘一致**。只缩到 `│ ↳` 那一行、续行仍停 col 2，就是漏了第三个宿主（`aggregate-steer-indent.ts`）。
 ### B. 看门狗（默认阈值下无法自然触发，读这段）
 
 默认阈值是 **80 次 bash → nudge**，**再 10 回合 → 硬停**。没有墙钟帽。单次核验会话几乎不可能自然撞到。
@@ -260,6 +268,7 @@ reload 完成后回我一句「reload 好了」，我接着跑阶段 4。
 | 编辑工具 schema 锁 | `src/hashline-edit-schema.ts` | 同名单测 | C2 |
 | 编辑截短 preview | `src/compact-edit-ui.ts` | 同名单测 | A4 / A5 |
 | 静默工具与账本透传 | `src/aggregate-silent-tools.ts`、`aggregate-silent-ledger.ts` | 同名测试 | A1 / A6 |
+| 账本左缘缩进 | `src/aggregate-ledger-indent.ts`、`src/aggregate-steer-indent.ts`（展开态 steer，第三个宿主） | 同名单测 | A8 |
 | 中途正文保留 | `src/aggregate-keep-narration.ts` | 同名测试 | A2 |
 | 账本钉去重 | `src/aggregate-omit-ledger-narration.ts` | 同名测试 | A2 |
 | 子代理通知 | `packages/notify/src/quiet-subagent-notifications.ts` | 同名单测 | A7 |

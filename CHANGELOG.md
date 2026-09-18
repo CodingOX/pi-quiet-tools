@@ -6,6 +6,30 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/)；日期术语与代码标识保留英文原文。
 
 ---
+## 2026-09-18 · Tools 账本左缘对齐正文
+
+一件纯观感修正：终端里 `Tools` 表头比它所属的助手正文更靠左一列。
+
+根因是两侧左缘来源不同：正文走 Pi 的 `AssistantMessageComponent`，左缘由 `outputPad`
+顶开 1 列；而 display-intent 把 `Tools` 表头画在 col 0，同块的统计行与行条目却是固定 2 空格。
+块内自洽，只有表头这一行没跟正文对齐。
+
+### Fixed
+
+- **会话账本表头与助手正文左缘对齐**（`src/aggregate-ledger-indent.ts`）。
+  账本行整体右移 1 列，块内层级（表头 0 / 统计 2 / 行条目 2）保持不变。
+  三条实现约束：**逐行分类**而非整块平移（Ctrl+O 展开态下账本行与恢复出的正文在同一个
+  渲染块里）；**幂等**（只在基准缩进上平移，因为包装器挂在原型上、跨 `/reload` 存活）；
+  **不动非账本行**（`replace` / `insert` 的截短 rail diff 与账本共用同一条 render 原型）。
+  识别还分两档收紧：框线行（`└ ✓`）形态独特、可独立认；裸内容行（`  ✓ test name`）
+  前缀太常见（vitest / pytest 输出），必须与表头同块才平移，否则真实用例列表会被顶歪。
+  三个渲染宿主都接：`aggregate-silent-tools.ts`（折叠账本）、`aggregate-keep-narration.ts`
+  （展开态表头）、`aggregate-steer-indent.ts`（展开态 steer —— 它由 `UserMessageComponent`
+  渲染，另两个宿主都看不到；整块纯轨道平移，续行没有 marker 只能整体缩）。
+  前两者的 wrap key 分别升到 `aggregate-silent-wrap.v6` 与 `aggregate-keep-narration.v4` ——
+  原型补丁跨 reload 存活，不升 key 会让新逻辑被提前 return 掉、表现为「改了没效果」。
+
+---
 
 ## 2026-09-18 · Markdown 增强收编进 bundle
 

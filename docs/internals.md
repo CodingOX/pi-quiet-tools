@@ -72,6 +72,10 @@ holding a private live pin, so a long `bash` is never hidden behind a `read`.
 current tool phase. Thinking placeholders and structured control noise are removed from terminal
 narration.
 
+The ledger's left edge is aligned to prose by glue: Pi indents assistant text with `outputPad`, while
+display-intent paints the `Tools` header at column 0. `aggregate-ledger-indent.ts` shifts ledger rows
+right by one column, so the block reads as one unit instead of hanging a column to the left.
+
 Decision records and the shared vocabulary:
 
 - [`docs/adr/0001-open-ledger-liveness.md`](./adr/0001-open-ledger-liveness.md) — why open ledgers tick and where that rendering lives
