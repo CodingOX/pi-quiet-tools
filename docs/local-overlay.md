@@ -48,6 +48,8 @@ Capabilities that vanilla hashline + standalone display-intent do not ship.
 **Watchdog** — `packages/watchdog/src/host-watchdog.ts`
 Stops a silent bash runaway. UI host: 80 bash → nudge; then 10 turns → later tools are blocked and the model must report current/next work in Chinese; official text resets the ledger. Child session: same 80+10 on an isolated ledger, but official text does not reset; the child must return an incomplete handoff (`INCOMPLETE`) and settle. Waiting on Ask or a child does not trip the **host**. No UI notify on children. In-flight commands are not aborted. See [ADR 0003](./adr/0003-ui-host-watchdog.md) and [ADR 0004](./adr/0004-child-session-watchdog.md).
 
+The human-facing notice (`ctx.ui.notify`, `announce()`) is a **separate channel** from the instruction injected into the model (`context` event): the notice never enters the context, so its wording can differ freely. It is sent as `"info"`, not `"warning"` — Pi's `showWarning` paints the whole line in the theme's `warning` colour (bright yellow) with a hardcoded `Warning: ` prefix, which reads louder than the assistant prose it sits next to. `"info"` routes to `showStatus` (dim, no prefix). `NUDGE_NOTIFY` is a plain statement of fact ("bash 过多，已请模型汇报进度"), not "请尽快收口": the first rung asks the model to *speak*, not to *finish*, and its instruction explicitly allows continuing afterwards.
+
 **Compact edit preview** — `compact-edit-ui.ts`
 
 `replace` / `insert` stay outside the silent ledger and paint a truncated +/- snippet (about 6 change lines) with a left rail, not Pi’s default green shell. `Ctrl+O` restores hashline’s native preview.
@@ -62,7 +64,7 @@ Compresses subagent completion notices to one status line (must load before `@ti
 
 **Narration keep / ledger-pin omit** — `aggregate-keep-narration.ts`, `aggregate-omit-ledger-narration.ts`
 
-Mid-turn assistant Markdown stays visible as the assistant body. Thinking, GPT-style `<thinking>` tags, and leftover session-sequence prefixes are stripped. Display-intent’s in-progress `›` pin is dropped from the Tools ledger so the same prose is not shown twice.
+Mid-turn assistant Markdown stays visible as the assistant body. Thinking, GPT-style `<thinking>` tags, and leftover session-sequence prefixes are stripped. Display-intent’s in-progress `›` pin is dropped from the Tools ledger so the same prose is not shown twice — including the full-width **padded** separator rows Markdown rendering leaves behind, which otherwise survive as a content-free blank line between the `Tools` header and the first tool row (and, at wider terminals, as a stray paragraph of the pin). Ledger edge separators and indented blanks that do not follow a pin are preserved.
 
 **Silent-tool wrap** — `register-tool-hook.ts`, `aggregate-silent-tools.ts`, `aggregate-silent-ledger.ts`
 
