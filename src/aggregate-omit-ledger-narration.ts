@@ -16,6 +16,17 @@ function isCollapsedNarrationStart(line: string): boolean {
   return trimmed.startsWith(`${COLLAPSED_NARRATION_MARK} `);
 }
 
+/**
+ * 旁白钉的续行判据：固定 4 空格前缀 + 非工具行内容。
+ *
+ * 注意「整行空白」也算续行：display-intent 的 `renderCollapsedAssistantNarration`
+ * 走 Markdown 渲染，而 Markdown **把每一行补齐到整行宽度**，所以旁白里的段落
+ * 分隔行到达这里时是 `    ` + 一整行空格，`trim()` 后为空但并不是空字符串。
+ *
+ * 为什么必须认它：漏掉这一行会留下两个可见后果 ——
+ * 1. 该行原样留在表头与首个工具行之间，终端上就是一条凭空的宽间距（无内容可读）；
+ * 2. 它还会中断下面的跳过链（`skipContinuations` 被重置），把旁白的后续段落也一起漏出来。
+ */
 function isCollapsedNarrationContinuation(line: string): boolean {
   const plain = stripRenderSequences(line);
   if (!plain.startsWith("    ")) {
@@ -23,7 +34,7 @@ function isCollapsedNarrationContinuation(line: string): boolean {
   }
   const trimmed = plain.trim();
   if (!trimmed) {
-    return false;
+    return true;
   }
   if (TOOL_OR_STEER_MARKER_PATTERN.test(trimmed)) {
     return false;
@@ -36,8 +47,9 @@ function isCollapsedNarrationContinuation(line: string): boolean {
 
 /**
  * quiet-tools already restores mid-turn Markdown as the assistant body.
- * Drop display-intent's in-progress › pin (and wrapped continuations) from
- * the Tools ledger so the same prose is not shown twice.
+ * Drop display-intent's in-progress › pin (wrapped continuations included, and the
+ * full-width padded separator rows Markdown rendering leaves behind) from the Tools
+ * ledger so the same prose is not shown twice — nor as a stray blank gap.
  *
  * Ctrl+O framed rows (`│ ›` / `└`) stay in the expanded timeline.
  * Collapsed pins that copied assistant markdown (`› │ …`) are still dropped.
