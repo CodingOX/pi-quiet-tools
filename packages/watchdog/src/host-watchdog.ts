@@ -33,7 +33,7 @@ export interface WatchdogPolicy {
 }
 
 export const NUDGE_INSTRUCTION =
-  "【quiet-tools 看门狗】本请求 bash 过多。用户几乎看不到你的过程。thinking、工具调用和你写给自己的指令，对用户没有意义——他们只能读可见正文，才能知道你在做什么。本回合必须先在可见正文（不要写进 thinking）用中文写清：1) 正在做什么；2) 还差哪一步就能收口。可见正文出现后看门狗会重置；之后若再连续闷头调 bash，会再次进入宽限。不要复述工具日志，不要道歉。";
+  "【quiet-tools 看门狗】本请求 bash 过多。用户几乎看不到你的过程。thinking、工具调用和你写给自己的指令，对用户没有意义——他们只能读可见正文，才能知道你在做什么。本回合必须先在可见正文（不要写进 thinking）用中文写清：1) 正在做什么；2) 是否仍专注于目标、有没有过度发散；3) 还差哪些步骤就能收口。可见正文出现后看门狗会重置；之后若再连续闷头调 bash，会再次进入宽限。不要复述工具日志，不要道歉。";
 
 export const HARD_STOP_INSTRUCTION =
   "【quiet-tools 看门狗】宽限已结束，禁止继续调用工具。立刻用中文可见正文回复（不要 thinking、不要任何工具）：1) 当前做到哪；2) 建议用户下一步做什么。各一两句。不要道歉，不要罗列已调用的工具。";
@@ -56,7 +56,18 @@ export const CHILD_WATCHDOG_POLICY: WatchdogPolicy = {
   hardStopInstruction: CHILD_HARD_STOP_INSTRUCTION,
 };
 
-export const NUDGE_NOTIFY = "看门狗：进入宽限，请尽快收口";
+/**
+ * 人类可见的提示行（`ctx.ui.notify`）。
+ *
+ * ⚠️ 这两条**只给人看**，不进模型上下文；模型看到的是 `context` 事件注入的
+ * `NUDGE_INSTRUCTION` / `HARD_STOP_INSTRUCTION`。所以它们的口吻、详略都可以和指令
+ * 分开定 —— 别把指令里的长句抄到这里。
+ *
+ * 为什么 nudge 用「已请模型汇报」这种陈述句，而不是「请尽快收口」：第一档本来就是
+ * 「叫它开口」而不是「叫它收尾」，指令里也明说汇报后可以继续。旧文案在后半句催收口，
+ * 和指令自相矛盾。
+ */
+export const NUDGE_NOTIFY = "看门狗：bash 过多，已请模型汇报进度";
 export const HARD_STOP_NOTIFY = "看门狗：已禁止继续调用工具";
 
 const WATCHDOG_INSTALL_KEY = Symbol.for("pi-quiet-tools.host-watchdog.v1");
@@ -318,7 +329,10 @@ function announce(
     return;
   }
   const message = notify === "nudge" ? NUDGE_NOTIFY : HARD_STOP_NOTIFY;
-  ctx?.ui.notify(message, "warning");
+  // severity 用 "info"：Pi 的 warning 会渲染成满亮黄色 + "Warning: " 前缀（interactive-mode
+  // 的 showWarning），在终端里比正文还扎眼。这条只是「下一步有动作」的提醒，不是错误，
+  // 走 showStatus 的 dim 灰更贴 quiet-tools 的调性。
+  ctx?.ui.notify(message, "info");
 }
 
 function injectInstruction(

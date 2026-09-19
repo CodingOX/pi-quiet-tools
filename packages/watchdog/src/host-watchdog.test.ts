@@ -43,9 +43,11 @@ test("default limits lock bashBudget at 80 and nudge on the 80th bash", () => {
   assert.equal(watchdog.bashCount(), 80);
 });
 
-test("nudge copy talks about bash and visible prose, not elapsed time", () => {
+test("nudge copy talks about bash, visible prose, and drifting off-goal", () => {
   assert.match(NUDGE_INSTRUCTION, /bash 过多/);
   assert.match(NUDGE_INSTRUCTION, /可见正文/);
+  assert.match(NUDGE_INSTRUCTION, /发散/);
+  assert.match(NUDGE_INSTRUCTION, /还差哪些步骤/);
   assert.doesNotMatch(NUDGE_INSTRUCTION, /过长/);
   assert.doesNotMatch(NUDGE_INSTRUCTION, /长时间/);
 });
@@ -273,7 +275,11 @@ function fakePi(): {
   };
 }
 
-function hostCtx(notify: (message: string) => void): ExtensionContext {
+// 记录 severity 而不只是文案：nudge 用 "info" 走 Pi 的 dim 状态行，不用 "warning" ——
+// warning 会被 interactive-mode 的 showWarning 画成满亮黄 + "Warning: " 前缀。
+function hostCtx(
+  notify: (message: string, type?: "info" | "warning" | "error") => void,
+): ExtensionContext {
   return {
     hasUI: true,
     ui: { notify },
@@ -286,6 +292,27 @@ function childCtx(sessionId = "child-1"): ExtensionContext {
     sessionManager: { getSessionId: () => sessionId },
   } as unknown as ExtensionContext;
 }
+
+test("installer nudge notifies with info severity so Pi renders a dim status line", async () => {
+  const seen: Array<{ message: string; type?: string }> = [];
+  const { pi, emit } = fakePi();
+  installHostWatchdog(pi, createWatchdog(tight));
+  const host = {
+    hasUI: true,
+    ui: {
+      notify: (message: string, type?: "info" | "warning" | "error") => {
+        seen.push({ message, type });
+      },
+    },
+  } as unknown as ExtensionContext;
+
+  await emit("before_agent_start", {}, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+  await emit("tool_call", { toolName: "bash" }, host);
+
+  // "warning" 会被 Pi 画成满亮黄 + "Warning: " 前缀；这里锁死走 "info" 的 dim 状态行。
+  assert.deepEqual(seen, [{ message: NUDGE_NOTIFY, type: "info" }]);
+});
 
 test("installer does not count child bash on the host watchdog or terminate a hard-stop block", async () => {
   const notices: string[] = [];
